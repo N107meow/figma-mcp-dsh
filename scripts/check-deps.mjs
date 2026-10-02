@@ -11,9 +11,16 @@
  * Why the version check matters more than it looks: `defineTool`, the config
  * schema contract, and the credential seam all come from the host. Installing a
  * different version does not fail at load — it fails later, at tool-call time,
- * as a type or behaviour mismatch. So the release triple is compared against
- * `peerDependencies` and a mismatch fails the check instead of becoming a
- * footnote.
+ * as a type or behaviour mismatch. So every resolved version is tested against
+ * its `peerDependencies` range with `{ includePrerelease: true }` — the same
+ * call DSH's own compatibility gate makes (`dsh-app-boot`), with the same
+ * option — and a version outside the range fails the check instead of becoming
+ * a footnote.
+ *
+ * The peer ranges are therefore not decoration: they are what the host reads at
+ * startup to decide whether to load this plugin at all. A range that is too
+ * narrow disables the plugin (`is incompatible with dsh <version>`); too wide
+ * and the host stops protecting anyone from a breaking upgrade.
  *
  * See docs/P0-IMPLEMENTATION.md §1.0.
  *
@@ -32,19 +39,28 @@ const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.
 const peers = manifest.peerDependencies ?? {}
 
 /**
- * Reduce a version to its release triple, dropping any prerelease tag.
+ * Load `semver`, the implementation DSH's own compatibility gate calls.
  *
- * `0.1.5-rc.2` and `0.1.5-rc.3` share a triple; `0.1.5` and `0.2.0` do not. The
- * host's prerelease cadence moves the tag far more often than the triple, so the
- * triple is the part worth failing on.
+ * Taken from this repository's own dependencies rather than from the running
+ * deployment on purpose: a gate whose verdict changes with whatever DSH happens
+ * to be installed next to it is not a gate. `semver` is a dev dependency, so it
+ * never reaches the published package.
  *
- * @param {string} version - Version or range.
- * @returns {string|undefined} `major.minor.patch`, when one can be read.
+ * Loaded dynamically so that a missing dev dependency produces an actionable
+ * message instead of a module-resolution stack trace — this script's first job
+ * is telling you what to install.
+ *
+ * @returns {Promise<{satisfies: Function, valid: Function}|undefined>} The module, or `undefined` when absent.
  */
-function releaseTriple(version) {
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(String(version))
-  return match === null ? undefined : `${match[1]}.${match[2]}.${match[3]}`
+async function loadSemver() {
+  try {
+    return await import('semver')
+  } catch {
+    return undefined
+  }
 }
+
+const semver = await loadSemver()
 
 let failed = 0
 console.log('resolving host packages from this repository:\n')
@@ -61,10 +77,22 @@ for (const [name, why] of MODULES) {
   try {
     await import(name)
     console.log(`  ✅ ${name.padEnd(30)} ${version.padEnd(12)} (${why})`)
+
     const expected = peers[name]
-    const actualTriple = releaseTriple(version)
-    const expectedTriple = releaseTriple(expected ?? '')
-    if (expected !== undefined && actualTriple !== undefined && expectedTriple !== undefined && actualTriple !== expectedTriple) {
+    if (expected === undefined || semver === undefined) continue
+
+    if (semver.valid(version) === null) {
+      // Not a mismatch: a version that cannot be read cannot be judged, and
+      // inventing a verdict for it would be worse than saying so.
+      console.log(`     ⚠️  could not read a version to test against ${expected}`)
+      continue
+    }
+
+    // `includePrerelease` is not optional here: `0.2.0-rc.2` must satisfy a
+    // range like `>=0.1.5-rc.2 <0.3.0-0`, and without this option semver
+    // refuses every prerelease outright — the exact false negative that made
+    // the host disable this plugin at startup.
+    if (!semver.satisfies(version, expected, { includePrerelease: true })) {
       failed++
       console.log(`     ❌ version mismatch: resolved ${version}, but peerDependencies asks for ${expected}`)
     }
@@ -75,19 +103,30 @@ for (const [name, why] of MODULES) {
   }
 }
 
+if (semver === undefined) {
+  failed++
+  console.log(`
+  ❌ semver is not installed, so no peer range could be tested.
+
+     pnpm add -D semver
+`)
+}
+
 if (failed > 0) {
   console.error(`
 ${failed} host package problem(s).
 
-Fix — read the version off your own deployment rather than trusting npm's
+Fix — read the versions off your own deployment rather than trusting npm's
 \`latest\` tag, which lags behind what ships:
 
   D=<deployment>/node_modules/@deepseek-ai
-  node -p "require('$D/dsh-tools/package.json').version"     # e.g. 0.1.5-rc.3
+  for p in dsh-tools schemastery cordis; do
+    node -p "require('$D/$p/package.json').version"
+  done
 
-  pnpm add -D @deepseek-ai/dsh-tools@<that version> \\
-             @deepseek-ai/schemastery@3.18.2 \\
-             @deepseek-ai/cordis@4.0.2
+  pnpm add -D @deepseek-ai/dsh-tools@<version> \\
+             @deepseek-ai/schemastery@<version> \\
+             @deepseek-ai/cordis@<version>
 `)
   process.exit(1)
 }

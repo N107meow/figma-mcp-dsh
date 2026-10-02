@@ -1,6 +1,6 @@
 {
   "name": "figma-mcp-dsh",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Read-only Figma design-source tools for DeepSeek Harness: inspect file structure, colors, typography and export images as native tools.",
   "license": "MIT",
   "type": "module",
@@ -30,9 +30,12 @@
   },
   "//peerDependencies": "The host supplies these, but this repo is consumed via `link:`, so Node resolves imports from THIS directory (the symlink's real path). They must therefore be installed here too \u2014 see docs/P0-IMPLEMENTATION.md section 1.0.",
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2",
-    "@deepseek-ai/dsh-tools": "^0.1.5-rc.2",
-    "@deepseek-ai/schemastery": "^3.18.2"
+    "@deepseek-ai/cordis": ">=4.0.2 <5.0.0-0",
+    "@deepseek-ai/dsh-tools": ">=0.1.5-rc.2 <0.3.0-0",
+    "@deepseek-ai/schemastery": ">=3.18.2 <4.0.0-0"
+  },
+  "devDependencies": {
+    "semver": "^7.8.5"
   },
   "scripts": {
     "check:deps": "node scripts/check-deps.mjs",
