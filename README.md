@@ -47,7 +47,30 @@ cd ~/.dsh/profiles/web
 pnpm add github:N107meow/figma-mcp-dsh
 ```
 
-如果你正在本地开发插件，请改用 `link:` 安装：
+#### 其它安装方式 · npm
+
+插件也已发布到 npm，registry 上的版本与仓库同步。如果你更习惯从 npm 安装：
+
+```bash
+dsh plugin --profile web add figma-mcp-dsh
+```
+
+或者直接在 profile 目录里用 `pnpm`：
+
+```bash
+cd ~/.dsh/profiles/web
+pnpm add figma-mcp-dsh
+```
+
+从 npm 安装后，升级用：
+
+```bash
+dsh plugin --profile web update figma-mcp-dsh
+```
+
+#### 本地开发
+
+本地开发请改用 `link:` 安装：
 
 ```bash
 cd ~/.dsh/profiles/web
@@ -55,6 +78,8 @@ pnpm add link:/absolute/path/to/figma-mcp-dsh
 ```
 
 本地开发还需要在插件仓库中安装与当前 DSH 版本一致的宿主依赖。运行 `npm run check:deps` 可以检查版本是否匹配。
+
+> **插件与 DSH 版本必须匹配。** DSH 会校验插件的 `peerDependencies`，不匹配时**安装会被直接拒绝**（提示 `installation rejected: … is incompatible with dsh …`）。若你看到这条提示，说明插件版本落后于你的 DSH —— 升级插件即可，不要用 `dsh plugin allow-version` 绕过：那是给"已知不兼容但接受风险"用的，不是给"装错版本"用的。
 
 ### 2. 挂载插件
 
