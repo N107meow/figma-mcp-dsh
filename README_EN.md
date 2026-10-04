@@ -10,6 +10,7 @@ The plugin helps models understand designs without changing cloud files:
 
 - Read Figma files, pages, and node trees
 - Extract colors (including the stops of a gradient), type scales, layout properties, and dimensions
+- Report auto-layout alignment and wrapping, masks, and rotation — so a tilted or clipped layer cannot be described as a straight, complete one
 - Inspect local components, component sets, variants, and styles
 - Export a selected frame and return it to the model as an image
 - Limit traversal depth so large files do not consume the model context
