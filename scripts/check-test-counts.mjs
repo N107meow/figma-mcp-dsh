@@ -8,7 +8,7 @@
  * `test/` skips itself when its environment variables are absent — which is the
  * normal state on a developer machine, and also exactly what a *misconfigured*
  * environment looks like. Without this gate, "the suite is green" cannot tell
- * the difference between "184 tests passed" and "170 passed and 14 were quietly
+ * the difference between "198 tests passed" and "184 passed and 14 were quietly
  * skipped", and a broken fixture path degrades into a green build.
  *
  * So the numbers are asserted. Changing them stays possible — it just becomes a
@@ -22,13 +22,14 @@
  * view seat) on a routine local check. Live runs go through `npm run test:real`,
  * which loads `.env.local` on purpose; nothing here weakens that path.
  *
+ * The invocation itself lives in `scripts/run-tests.mjs`, because *how to run
+ * the suite portably* turned out to be its own problem — and one that only the
+ * first CI run could reveal.
+ *
  * @module figma-mcp-dsh/scripts/check-test-counts
  */
 
-import { spawnSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
-
-const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
+import { runSuite } from './run-tests.mjs'
 
 /**
  * Lowest number of passing tests this repository ships.
@@ -46,9 +47,6 @@ const MIN_PASS = 184
  * means a test started (or stopped) being gated, not that a test was deleted.
  */
 const EXPECTED_SKIPPED = 14
-
-/** Wall-clock ceiling for the whole run; the suite has a 24 s timing test. */
-const TIMEOUT_MS = 10 * 60 * 1000
 
 /**
  * Remove every Figma variable from the inherited environment.
@@ -71,18 +69,6 @@ function stripFigmaEnv(source) {
   return { env, stripped: stripped.sort() }
 }
 
-/**
- * Read one `ℹ <name> <count>` line from the test runner's summary.
- *
- * @param {string} output - Runner output.
- * @param {string} name - Summary field, e.g. `pass`.
- * @returns {number|undefined} The count, when present.
- */
-function summaryValue(output, name) {
-  const match = new RegExp(`^ℹ\\s+${name}\\s+(\\d+)\\s*$`, 'm').exec(output)
-  return match === null ? undefined : Number(match[1])
-}
-
 const { env, stripped } = stripFigmaEnv(process.env)
 
 console.log('running the test suite with Figma variables stripped:')
@@ -93,27 +79,11 @@ console.log(
 )
 console.log('')
 
-const run = spawnSync(process.execPath, ['--test', 'test/'], {
-  cwd: REPO_ROOT,
-  env,
-  encoding: 'utf8',
-  timeout: TIMEOUT_MS,
-})
+const result = runSuite({ env })
+process.stdout.write(result.output)
 
-const output = `${run.stdout ?? ''}${run.stderr ?? ''}`
-process.stdout.write(run.stdout ?? '')
-if (run.stderr !== undefined && run.stderr !== '') process.stderr.write(run.stderr)
-
-if (run.error !== undefined) {
-  console.error(`\ncould not run the suite: ${run.error.message}`)
-  process.exit(1)
-}
-
-const pass = summaryValue(output, 'pass')
-const fail = summaryValue(output, 'fail')
-const skipped = summaryValue(output, 'skipped')
-
-if (pass === undefined || fail === undefined || skipped === undefined) {
+const { tests, pass, fail, skipped } = result
+if (tests === undefined || pass === undefined || fail === undefined || skipped === undefined) {
   console.error('\n❌ could not read the test summary — did the runner change its output format?')
   process.exit(1)
 }
@@ -140,4 +110,7 @@ if (problems.length > 0) {
   process.exit(1)
 }
 
-console.log(`\ntest counts as expected — pass ${pass} (≥ ${MIN_PASS}), fail 0, skipped ${skipped} (live data not configured).`)
+console.log(
+  `\ntest counts as expected — pass ${pass} (≥ ${MIN_PASS}), fail 0, skipped ${skipped} ` +
+    `(live data not configured), ${result.files.length} file(s).`,
+)

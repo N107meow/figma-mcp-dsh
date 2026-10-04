@@ -44,8 +44,8 @@
     "check:secrets": "node scripts/check-secrets.mjs",
     "check:test-counts": "node scripts/check-test-counts.mjs",
     "verify": "npm run check:deps && npm run check:layering && npm run check:secrets && npm run check:test-counts",
-    "test": "node --test test/",
-    "test:core": "node --test test/core/",
+    "test": "node scripts/run-tests.mjs",
+    "test:core": "node scripts/run-tests.mjs test/core",
     "test:real": "node --env-file-if-exists=.env.local --test test/core/real-data.test.js test/core/p1-real-data.test.js",
     "prepublishOnly": "npm run verify"
   },

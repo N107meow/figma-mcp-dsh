@@ -25,11 +25,18 @@ permissions:
 
 jobs:
   verify:
-    name: gates and tests
+    name: gates and tests (node ${{ matrix.node }})
     runs-on: ubuntu-latest
     # The suite includes a real 24-second timer test, so this is generous on
     # purpose rather than tight.
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # `engines` claims >=20, and that claim was untested until the first CI
+        # run found that `node --test <dir>` means one thing on 26 and another
+        # on 22. Both ends of the claimed range are now actually exercised.
+        node: ['20', '22']
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,7 +46,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node }}
 
       - name: Install
         # `npm install`, not `npm ci`: this repository deliberately ships no
