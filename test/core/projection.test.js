@@ -21,6 +21,7 @@ import {
   projectImageUrls,
   projectNode,
   projectNodeTree,
+  projectPaint,
   toHex,
 } from '../../src/core/projection.js'
 import { DEFAULT_MAX_TEXT_CHARS } from '../../src/core/projection.js'
@@ -188,6 +189,100 @@ test('effects alone leave the paint palette empty and still report their colors'
   assert.deepEqual(palette.fills, [])
   assert.deepEqual(palette.strokes, [])
   assert.equal(collectEffectColors(node).length, 1)
+})
+
+test('a gradient keeps its stops, so its colors are not lost', () => {
+  // The defect this pins: reading only `paint.color` projected every gradient
+  // to `{type}` alone. No color appeared anywhere in the result, and the
+  // palette counted nothing — so a gradient-only design reported an empty
+  // palette, which reads as "this design uses no color".
+  const node = projectNode({
+    id: '1:1',
+    name: 'Hero',
+    type: 'RECTANGLE',
+    fills: [
+      {
+        type: 'GRADIENT_LINEAR',
+        gradientStops: [
+          { position: 0, color: { r: 1, g: 0, b: 0, a: 1 } },
+          { position: 1, color: { r: 0, g: 0, b: 1, a: 1 } },
+        ],
+      },
+    ],
+  })
+
+  assert.deepEqual(node.fills, [
+    {
+      type: 'GRADIENT_LINEAR',
+      stops: [
+        { position: 0, hex: '#FF0000' },
+        { position: 1, hex: '#0000FF' },
+      ],
+    },
+  ])
+  // Positions survive, so the ramp stays a ramp rather than a bag of colors.
+  assert.deepEqual(
+    node.fills[0].stops.map((stop) => stop.position),
+    [0, 1],
+  )
+  assert.deepEqual(collectPalette(node).fills, [
+    { hex: '#0000FF', count: 1 },
+    { hex: '#FF0000', count: 1 },
+  ])
+  // Strokes are counted by the same walk, so a gradient border counts too.
+  const stroke = projectNode({
+    id: '1:2',
+    name: 'Border',
+    type: 'RECTANGLE',
+    strokes: [{ type: 'GRADIENT_LINEAR', gradientStops: [{ position: 0, color: { r: 0, g: 1, b: 0, a: 1 } }] }],
+  })
+  assert.deepEqual(collectPalette(stroke).strokes, [{ hex: '#00FF00', count: 1 }])
+  assert.deepEqual(collectPalette(stroke).fills, [])
+})
+
+test('a gradient stop that fades out keeps its alpha, so it is not read as solid', () => {
+  // On a *stop*, `color.a` is the stop's own alpha — there is no other field
+  // for it (on a paint it would be the trap `toHex` exists to close, where
+  // layer transparency is `paint.opacity`). Dropping it would turn "fade to
+  // transparent" into "solid black".
+  const node = projectNode({
+    id: '1:1',
+    name: 'Fade',
+    type: 'RECTANGLE',
+    fills: [
+      {
+        type: 'GRADIENT_LINEAR',
+        gradientStops: [
+          { position: 0, color: { r: 0, g: 0, b: 0, a: 1 } },
+          { position: 0.5, color: { r: 0, g: 0, b: 0, a: 0.4 } },
+          { position: 1, color: { r: 0, g: 0, b: 0, a: 0 } },
+        ],
+      },
+    ],
+  })
+  assert.deepEqual(
+    node.fills[0].stops.map((stop) => ({ ...stop })),
+    [
+      { position: 0, hex: '#000000' },
+      { position: 0.5, hex: '#000000', alpha: 0.4 },
+      { position: 1, hex: '#000000', alpha: 0 },
+    ],
+  )
+  // The field is `alpha`, never `opacity`: on a paint `opacity` means layer
+  // transparency, and the two must not be readable as the same thing.
+  assert.equal('opacity' in node.fills[0].stops[2], false)
+})
+
+test('a paint that is not a gradient gains no stops field', () => {
+  const solid = projectNode({ id: '1:1', name: 'n', type: 'RECTANGLE', fills: [semiTransparentPaint()] })
+  assert.equal('stops' in solid.fills[0], false)
+
+  // A gradient whose stops carry no usable color degrades to `{type}` alone,
+  // rather than to an empty `stops` array that would read as "no colors here".
+  const unusable = projectPaint({ type: 'GRADIENT_RADIAL', gradientStops: [{ position: 0 }] })
+  assert.deepEqual(unusable, { type: 'GRADIENT_RADIAL' })
+  assert.deepEqual(projectPaint({ type: 'GRADIENT_RADIAL', gradientStops: [] }), { type: 'GRADIENT_RADIAL' })
+  assert.deepEqual(projectPaint({ type: 'GRADIENT_RADIAL', gradientStops: 'nope' }), { type: 'GRADIENT_RADIAL' })
 })
 
 test('an effect sharing a fill color counts in both places without interfering', () => {

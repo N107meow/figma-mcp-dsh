@@ -9,7 +9,7 @@
 The plugin helps models understand designs without changing cloud files:
 
 - Read Figma files, pages, and node trees
-- Extract colors, type scales, layout properties, and dimensions
+- Extract colors (including the stops of a gradient), type scales, layout properties, and dimensions
 - Inspect local components, component sets, variants, and styles
 - Export a selected frame and return it to the model as an image
 - Limit traversal depth so large files do not consume the model context
@@ -47,6 +47,29 @@ cd ~/.dsh/profiles/web
 pnpm add github:N107meow/figma-mcp-dsh
 ```
 
+#### Other installation methods · npm
+
+The plugin is also published to npm, and the registry version tracks this repository. If you prefer npm:
+
+```bash
+dsh plugin --profile web add figma-mcp-dsh
+```
+
+Or install it directly in the profile directory with `pnpm`:
+
+```bash
+cd ~/.dsh/profiles/web
+pnpm add figma-mcp-dsh
+```
+
+After installing from npm, upgrade with:
+
+```bash
+dsh plugin --profile web update figma-mcp-dsh
+```
+
+#### Local development
+
 Use a `link:` dependency instead when you develop the plugin locally:
 
 ```bash
@@ -55,6 +78,8 @@ pnpm add link:/absolute/path/to/figma-mcp-dsh
 ```
 
 Local development also requires host packages that match your current DSH version. Run `npm run check:deps` in the plugin repository to verify the versions.
+
+> **The plugin and DSH versions must match.** DSH validates the plugin's `peerDependencies`, and a mismatch makes the **installation fail outright** (`installation rejected: … is incompatible with dsh …`). If you see that message, the plugin is older than your DSH — upgrade the plugin. Do not work around it with `dsh plugin allow-version`: that exemption exists for "known incompatible, risk accepted", not for "the wrong version was installed".
 
 ### 2. Mount the plugin
 
@@ -159,6 +184,10 @@ The token has expired or was revoked. Create a token and replace the old value. 
 ### Why does the plugin return `forbidden_scope`?
 
 The token lacks a required permission. Create a token with the four read-only scopes listed in the requirements.
+
+### Why does the plugin return `credential_error`?
+
+DSH's own credential service failed while resolving the token — a credentials file that is unreadable or no longer valid YAML, or a service that is not mounted — so no request was sent to Figma. This differs from `unconfigured`: that means the service answered "no token", while this means the service did not answer at all. Check that `~/.dsh/.credentials.yaml` is readable and is valid YAML, confirm it holds the entry you expect, and restart DSH if the file looks fine.
 
 ### Why does a request wait before running?
 

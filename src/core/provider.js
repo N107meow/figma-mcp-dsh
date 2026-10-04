@@ -43,6 +43,7 @@ import {
   badArgs,
   badOp,
   classifyResponse,
+  credentialError,
   messageFromBody,
   ReadOnlyViolationError,
   tokenInvalid,
@@ -798,7 +799,18 @@ export function createProvider(deps) {
       params.depth = depthSpec?.default ?? 2
     }
 
-    const token = await tokenSource.resolve()
+    // The credential seam is the one place a *host* failure can reach this
+    // layer: a corrupt credentials file, an unmounted service, a watcher error.
+    // Without this catch the exception escapes `execute` and reaches the model
+    // as a thrown error — bypassing the structured-failure channel on exactly
+    // the path where a next step is most useful.
+    let token
+    try {
+      token = await tokenSource.resolve()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      return failure(credentialError(tokenSource.ref, redactor.redact(detail)), { op })
+    }
     if (typeof token !== 'string' || token.length === 0) return failure(unconfigured(tokenSource.ref), { op })
     redactor.remember(token)
 

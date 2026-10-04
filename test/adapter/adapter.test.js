@@ -25,6 +25,20 @@ test('the public entry re-exports the adapter exactly', () => {
   assert.equal(entry.apply, adapter.apply)
   assert.equal(entry.inject, adapter.inject)
   assert.equal(entry.Config, adapter.Config)
+
+  // The four checks above are name-by-name identity checks, and identity is not
+  // the same claim as "exactly". Two silent degradations slip past them: delete
+  // a field from both sides and the remaining assertions still pass, and add a
+  // new adapter export that `lib/` never forwards and nothing notices — the
+  // forwarding layer is then stale while the suite stays green.
+  //
+  // The pair below is what makes the test's "exactly" true. The first line
+  // freezes the expected set, so a coordinated deletion fails; the second
+  // compares against the adapter's real keys, so a missed or extra re-export
+  // fails. `lib/index.js` and this test are the only things keeping the
+  // committed entry point honest, so both directions are pinned.
+  assert.deepEqual(Object.keys(entry).sort(), ['Config', 'apply', 'inject', 'name'])
+  assert.deepEqual(Object.keys(entry).sort(), Object.keys(adapter).sort())
 })
 
 test('the plugin declares the name and hard dependencies the wiring expects', () => {

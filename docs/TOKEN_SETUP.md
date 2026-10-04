@@ -88,6 +88,8 @@ figma_call({ op: "file_meta", target: "https://www.figma.com/design/<key>/<name>
 
 **`403` 是另一回事**：令牌有效，但**缺某个 scope**。Figma 的响应体是 `{"status":403,"message":"Invalid scope(s): <该令牌实际持有的全部 scope>"}`，插件据此告诉模型"你只有这几个 scope，缺的是哪个"。看到 403 就去 §1 重勾 scope 再生成一个令牌。
 
+**`credential_error` 是第三种**：连令牌都没取到——DSH 的凭据服务在解析时**抛了异常**（`~/.dsh/.credentials.yaml` 损坏、不是合法 YAML、服务没挂载）。插件同样不抛错，而是返回结构化失败并说明"**没有向 Figma 发出任何请求**"，避免你去 Figma 那边白找原因。先确认那个文件可读且是合法 YAML，再确认条目名对得上；文件没问题就重启 DSH。它与 `unconfigured` 的区别是：后者是"服务答了：没有这个凭据"，前者是"服务没有作答"。
+
 ## 6. 顺带一提：席位与额度
 
 Figma 的 REST 额度按**席位**给：
@@ -104,3 +106,28 @@ config:
 ```
 
 如果你的席位额度真的很小，让模型先用 `file_meta`（Tier 3）定位，再用 `file_nodes` 精确读一个子树——**不要**反复浅读整个文件。
+
+## 7. 哪些测试需要哪些变量
+
+仓库里的真实数据测试**默认全部跳过**：它们各自有一道环境变量门，缺变量就 skip。要跑它们，把变量写进仓库根的 `.env.local`（**不入库**），然后用：
+
+```bash
+npm run test:real     # 会加载 .env.local
+```
+
+| 变量 | 解锁的用例 | 说明 |
+|---|---|---|
+| `FIGMA_TOKEN` | 所有真实数据用例 | 只读令牌，见 §1 |
+| `FIGMA_TEST_FILE_KEY` | `real-data` 的大部分 | 真实文件的 fileKey |
+| `FIGMA_TEST_NODE_ID` | `real-data` 的大部分 | 一个真实节点 id（与上面两个一起构成那道门） |
+| `FIGMA_TEST_NODE_ID_B` | 主题对照 1 条 | 同一张画板的另一主题（深/浅）节点 |
+| `FIGMA_TEST_RATE_LIMIT=1` | 限流排队 1 条 | **会真的消耗额度**（连续 12 次 Tier 1） |
+| `FIGMA_P1_COMPONENT_A` / `_A_NAME`、`_B` / `_B_NAME` | `p1-real-data` 的组件 2 条 | 同一组件族的两个变体，以及它们的名称 |
+| `FIGMA_P1_INSTANCE_A` / `_B` | `p1-real-data` 的实例 1 条 | 使用了这些组件的实例 |
+| `FIGMA_P1_STYLE` / `_NAME` / `_TYPE` | `p1-real-data` 的样式 1 条 | 一个真实样式及其名称与类型 |
+| `FIGMA_P1_STYLED_NODE` | `p1-real-data` 的样式引用 1 条 | 使用了该样式的节点 |
+
+两点必须知道：
+
+- **`npm run verify` 不会联网。** 它跑的门禁脚本会把环境里所有 `FIGMA_*` 变量**剥掉**再启动测试（见 `scripts/check-test-counts.mjs`），并且断言"跳过数恒为 14"。所以即使你的 shell 全局导出了令牌，本地门禁也不会花掉任何额度；同时也意味着**"测试全绿"从来不代表真实数据用例跑过**。
+- **不要提交真实 fileKey / 节点 id**。`.env.local` 已被 `.gitignore` 忽略，而 `npm run check:secrets` 会扫描工作树与 git 历史兜底。缺 `.env.local` 时看到 14 条 skipped 是**正常状态**，不是失败。

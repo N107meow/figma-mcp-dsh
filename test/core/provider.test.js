@@ -12,6 +12,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { ReadOnlyViolationError } from '../../src/core/errors.js'
+import { createTokenSource } from '../../src/core/auth.js'
 import { createProvider } from '../../src/core/provider.js'
 import { DEFAULT_RATE_LIMITS } from '../../src/core/scheduler.js'
 import { createMemorySpool } from '../../src/core/spool-sink.js'
@@ -266,6 +267,66 @@ test('an unconfigured credential produces instructions, not a request', async ()
   const error = /** @type {Record<string, any>} */ (result.structuredContent.error)
   assert.equal(error.kind, 'unconfigured')
   assert.match(error.remedy, /refs\.FIGMA_TOKEN/)
+})
+
+test('a credential service that throws is reported, not thrown', async () => {
+  // Channel A has to cover this path too. `await tokenSource.resolve()` used to
+  // be unguarded, so a corrupt credentials file escaped `execute` as a thrown
+  // error — the model saw `Error: …` instead of the one thing this path most
+  // needs to carry, namely what the user should fix.
+  const { fetchImpl, calls } = routeAll()
+  const { provider } = createHarness({
+    fetchImpl,
+    tokenSource: createTokenSource({
+      ref: 'FIGMA_TOKEN',
+      resolve: async () => {
+        throw new Error('credentials file is not valid YAML')
+      },
+    }),
+  })
+
+  const result = await provider.call({ op: 'file_meta', args: { fileKey: KEY } })
+
+  assert.equal(calls.length, 0, 'nothing may be sent to Figma when the credential cannot be resolved')
+  assert.equal(result.structuredContent.ok, false)
+  const error = /** @type {Record<string, any>} */ (result.structuredContent.error)
+  assert.equal(error.kind, 'credential_error')
+  assert.equal(typeof error.remedy, 'string')
+  assert.ok(error.remedy.length > 0, 'a structured failure without a remedy is just a quieter crash')
+  assert.match(error.remedy, /credentials\.yaml/)
+  assert.match(error.remedy, /FIGMA_TOKEN/)
+})
+
+test('a thrown credential failure is redacted once the token is known', async () => {
+  // A host error message is not under this plugin's control, and a credential
+  // can end up inside one (in a path, or in an echo of the file's contents).
+  //
+  // The limit is worth stating: the redactor scrubs what it has *seen*, and a
+  // resolve that throws on the very first call has never returned a value — so
+  // there is nothing to match against. What this test pins is the case that can
+  // actually be defended: a token the plugin has already used, appearing in the
+  // message of a later failure.
+  const { fetchImpl } = routeAll()
+  let mode = 'ok'
+  const { provider } = createHarness({
+    fetchImpl,
+    tokenSource: createTokenSource({
+      ref: 'FIGMA_TOKEN',
+      resolve: async () => {
+        if (mode === 'throw') throw new Error(`cannot parse credentials near ${TEST_TOKEN}`)
+        return TEST_TOKEN
+      },
+    }),
+  })
+
+  await provider.call({ op: 'file_meta', args: { fileKey: KEY } }) // the redactor learns the token
+  mode = 'throw'
+  const result = await provider.call({ op: 'file_meta', args: { fileKey: KEY } })
+
+  const error = /** @type {Record<string, any>} */ (result.structuredContent.error)
+  assert.equal(error.kind, 'credential_error')
+  assert.equal(JSON.stringify(result).includes(TEST_TOKEN), false)
+  assert.equal(textOf(result).includes(TEST_TOKEN), false)
 })
 
 test('the credential never appears in a result or an error, on any path', async () => {

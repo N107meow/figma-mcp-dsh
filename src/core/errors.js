@@ -19,6 +19,7 @@ import { READ_ONLY_SCOPES, credentialDeliverySteps } from './auth.js'
 /**
  * @typedef {(
  *   {kind: 'unconfigured', remedy: string} |
+ *   {kind: 'credential_error', remedy: string} |
  *   {kind: 'token_invalid', remedy: string} |
  *   {kind: 'forbidden_scope', granted: string[], missing: string[], remedy: string} |
  *   {kind: 'not_found', remedy: string} |
@@ -62,6 +63,35 @@ export function unconfigured(ref) {
       'Ask the user to do one of these, then retry:\n' +
       credentialDeliverySteps(ref) +
       '  4. Tell me once it is in place and I will retry the operation.',
+  }
+}
+
+/**
+ * Asking the credential service failed: there was no answer at all.
+ *
+ * Distinct from {@link unconfigured}, which means the service answered "no
+ * token". Here the resolve call itself threw — an unreadable or corrupt
+ * credentials file, a service that is not mounted, a watcher error. Reusing
+ * `unconfigured` for this would tell the user to add a token that may already
+ * be sitting in the file, which is a remedy that sends them the wrong way.
+ *
+ * @param {string} ref - Credential reference name.
+ * @param {string} detail - Failure description, already redacted.
+ * @returns {FigmaError} Structured error.
+ */
+export function credentialError(ref, detail) {
+  return {
+    kind: 'credential_error',
+    remedy:
+      `The credential service failed while resolving "${ref}", so no request was sent to Figma.\n` +
+      `Reported failure: ${detail}\n` +
+      'Ask the user to do one of these, then retry:\n' +
+      '  1. Check that ~/.dsh/.credentials.yaml is readable and is still valid YAML —\n' +
+      '     a file that no longer parses makes every credential unreadable, not just this one.\n' +
+      `  2. Confirm the file has an entry named "${ref}" under "refs:".\n` +
+      '  3. If the file looks correct, restart DSH: the credential service may not be\n' +
+      '     mounted in this process.\n' +
+      '  4. Tell me once it is sorted out and I will retry the operation.',
   }
 }
 

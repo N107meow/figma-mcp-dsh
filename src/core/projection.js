@@ -102,6 +102,50 @@ export function toHex(color) {
 }
 
 /**
+ * Project a gradient's color stops.
+ *
+ * A gradient carries its colors in `gradientStops`, **not** in `color`, so a
+ * projector that only reads `color` emits a paint with its `type` and nothing
+ * else — every gradient color silently lost, and the palette contribution with
+ * it. That is the defect this function closes.
+ *
+ * Each stop keeps its `position`, so the ramp survives rather than collapsing
+ * into an unordered set of colors. A stop whose color is not fully opaque also
+ * keeps `alpha`:
+ *
+ * **`alpha` here is not the trap that `color.a` is for a paint.** On a paint,
+ * `color.a` is the color's alpha channel and layer transparency lives in
+ * `paint.opacity` — reading one as the other is the bug `toHex` exists to
+ * prevent. On a *stop*, `color.a` is the stop's own alpha and there is no other
+ * field for it: a gradient fading to transparent would otherwise project as a
+ * solid color. The field is named `alpha` rather than `opacity` so the two
+ * cannot be confused.
+ *
+ * @param {unknown} stops - Raw `gradientStops`.
+ * @returns {Array<{position: number, hex: string, alpha?: number}>|undefined} Projected stops.
+ */
+function projectGradientStops(stops) {
+  if (!Array.isArray(stops)) return undefined
+  /** @type {Array<{position: number, hex: string, alpha?: number}>} */
+  const out = []
+  for (const stop of stops) {
+    if (stop === null || typeof stop !== 'object') continue
+    const source = /** @type {{position?: unknown, color?: unknown}} */ (stop)
+    const color = source.color
+    if (color === null || typeof color !== 'object') continue
+    /** @type {{position: number, hex: string, alpha?: number}} */
+    const entry = {
+      position: typeof source.position === 'number' ? source.position : 0,
+      hex: toHex(/** @type {{r?: number, g?: number, b?: number}} */ (color)),
+    }
+    const alpha = /** @type {{a?: unknown}} */ (color).a
+    if (typeof alpha === 'number' && alpha !== 1) entry.alpha = alpha
+    out.push(entry)
+  }
+  return out.length === 0 ? undefined : out
+}
+
+/**
  * Project one paint (an entry of `fills` or `strokes`).
  *
  * @param {unknown} paint - Raw Figma paint.
@@ -120,6 +164,9 @@ export function projectPaint(paint) {
   if (color !== null && typeof color === 'object') {
     out.hex = toHex(/** @type {{r?: number, g?: number, b?: number}} */ (color))
   }
+  // Gradient paints have no `color` at all: their colours live in the stops.
+  const stops = projectGradientStops(source.gradientStops)
+  if (stops !== undefined) out.stops = stops
   // Transparency, read from the paint's own opacity field — never from color.a.
   if (typeof source.opacity === 'number' && source.opacity !== 1) out.opacity = source.opacity
   if (source.visible === false) out.hidden = true
@@ -706,6 +753,10 @@ function rankedPalette(counts, limit) {
  * black". Effect colors are reported separately by
  * {@link collectEffectColorsMany}.
  *
+ * A gradient contributes **its stops**, not one color: the stops are the colors
+ * the design actually uses, and a paint-level average would be a color that
+ * appears nowhere in the file.
+ *
  * @param {readonly unknown[]} roots - Projected roots.
  * @param {{limit?: number}} [options] - Collection options.
  * @returns {{fills: import('./types.js').PaletteEntry[], strokes: import('./types.js').PaletteEntry[]}} Palette.
@@ -771,8 +822,20 @@ function collectPaintInto(node, fillCounts, strokeCounts) {
     if (!Array.isArray(list)) continue
     for (const paint of list) {
       if (paint === null || typeof paint !== 'object') continue
-      const hex = /** @type {Record<string, unknown>} */ (paint).hex
+      const entry = /** @type {Record<string, unknown>} */ (paint)
+      const hex = entry.hex
       if (typeof hex === 'string') counts.set(hex, (counts.get(hex) ?? 0) + 1)
+      // A gradient has no `hex` of its own — its colors are the stops. Counting
+      // only `hex` left a gradient-only design with an empty palette, which
+      // reads as "this design has no colour" rather than "the colours are in a
+      // gradient". Each stop counts once, like a solid paint would.
+      const stops = entry.stops
+      if (!Array.isArray(stops)) continue
+      for (const stop of stops) {
+        if (stop === null || typeof stop !== 'object') continue
+        const stopHex = /** @type {Record<string, unknown>} */ (stop).hex
+        if (typeof stopHex === 'string') counts.set(stopHex, (counts.get(stopHex) ?? 0) + 1)
+      }
     }
   }
   const children = record.children
