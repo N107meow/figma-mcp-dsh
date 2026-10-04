@@ -128,7 +128,112 @@ test('text style keeps the designer-facing fields and drops the implementation o
     textAlignHorizontal: 'LEFT',
     lineHeightPx: 24,
     letterSpacing: -0.2,
+    // The unit is kept so the model knows which number it is reading; the
+    // percent is not, because with a pixel value it is the same fact twice.
+    lineHeightUnit: 'PIXELS',
   })
+})
+
+test('a percent line height survives when there is no pixel value to report', () => {
+  // Figma omits `lineHeightPx` when the unit is PERCENT or AUTO. Keeping only
+  // the pixel field meant the line height vanished entirely for those styles.
+  const percent = projectNode({
+    id: '1:1',
+    name: 'n',
+    type: 'TEXT',
+    characters: 'hi',
+    style: { fontFamily: 'Inter', fontSize: 16, lineHeightPercent: 150, lineHeightUnit: 'PERCENT' },
+  })
+  assert.deepEqual(percent.style, {
+    fontFamily: 'Inter',
+    fontSize: 16,
+    lineHeightUnit: 'PERCENT',
+    lineHeightPercent: 150,
+  })
+
+  // AUTO has no number at all, and saying so is the honest answer.
+  const auto = projectNode({
+    id: '1:2',
+    name: 'n',
+    type: 'TEXT',
+    characters: 'hi',
+    style: { fontFamily: 'Inter', fontSize: 16, lineHeightUnit: 'AUTO' },
+  })
+  assert.deepEqual(auto.style, { fontFamily: 'Inter', fontSize: 16, lineHeightUnit: 'AUTO' })
+})
+
+test('visible text decisions survive: vertical alignment, case, decoration', () => {
+  const node = projectNode({
+    id: '1:1',
+    name: 'Label',
+    type: 'TEXT',
+    characters: 'Save',
+    style: {
+      fontFamily: 'Inter',
+      textAlignVertical: 'CENTER',
+      textCase: 'UPPER',
+      textDecoration: 'UNDERLINE',
+      fontPostScriptName: 'Inter-Bold',
+    },
+  })
+  assert.deepEqual(node.style, {
+    fontFamily: 'Inter',
+    textAlignVertical: 'CENTER',
+    textCase: 'UPPER',
+    textDecoration: 'UNDERLINE',
+  })
+})
+
+test('rotation is reported only when there is one, because the box cannot show it', () => {
+  // `absoluteBoundingBox` is axis-aligned: without this a tilted layer reads as
+  // a straight one, which is a wrong answer rather than a missing detail.
+  const tilted = projectNode({
+    id: '1:1',
+    name: 'Badge',
+    type: 'RECTANGLE',
+    rotation: -12.5,
+    absoluteBoundingBox: { x: 0, y: 0, width: 40, height: 20 },
+  })
+  assert.equal(tilted.rotation, -12.5)
+
+  const straight = projectNode({ id: '1:2', name: 'Card', type: 'RECTANGLE', rotation: 0 })
+  assert.equal('rotation' in straight, false)
+  const unstated = projectNode({ id: '1:3', name: 'Card', type: 'RECTANGLE' })
+  assert.equal('rotation' in unstated, false)
+})
+
+test('a mask is reported, and an ordinary layer is not', () => {
+  const mask = projectNode({ id: '1:1', name: 'Cutout', type: 'RECTANGLE', isMask: true, maskType: 'ALPHA' })
+  assert.equal(mask.isMask, true)
+  assert.equal(mask.maskType, 'ALPHA')
+
+  // `isMask: false` is what the API returns for almost every node, so it must
+  // not add a field to almost every node.
+  const plain = projectNode({ id: '1:2', name: 'Card', type: 'FRAME', isMask: false })
+  assert.equal('isMask' in plain, false)
+  assert.equal('maskType' in plain, false)
+})
+
+test('auto-layout alignment and vector operations survive the whitelist', () => {
+  // Sizing and padding were kept while alignment was not, which left "how is
+  // this arranged?" half-answered.
+  const row = projectNode({
+    id: '1:1',
+    name: 'Row',
+    type: 'FRAME',
+    layoutMode: 'HORIZONTAL',
+    primaryAxisAlignItems: 'SPACE_BETWEEN',
+    counterAxisAlignItems: 'CENTER',
+    layoutWrap: 'WRAP',
+    counterAxisSpacing: 8,
+  })
+  assert.equal(row.primaryAxisAlignItems, 'SPACE_BETWEEN')
+  assert.equal(row.counterAxisAlignItems, 'CENTER')
+  assert.equal(row.layoutWrap, 'WRAP')
+  assert.equal(row.counterAxisSpacing, 8)
+
+  const union = projectNode({ id: '1:2', name: 'Blob', type: 'BOOLEAN_OPERATION', booleanOperation: 'UNION' })
+  assert.equal(union.booleanOperation, 'UNION')
 })
 
 test('the whitelist drops cold fields and keeps nested children', () => {

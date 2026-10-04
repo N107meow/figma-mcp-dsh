@@ -34,15 +34,32 @@ export const KEPT_NODE_FIELDS = Object.freeze([
   'paddingBottom',
   'primaryAxisSizingMode',
   'counterAxisSizingMode',
+  // Alignment was the missing half of "how is this laid out": sizing and padding
+  // were kept, but not which edge the content hugs. These only exist on
+  // auto-layout nodes, so they cost nothing anywhere else.
+  'primaryAxisAlignItems',
+  'counterAxisAlignItems',
+  'layoutWrap',
+  'counterAxisSpacing',
   'cornerRadius',
   'strokeWeight',
   'componentId',
+  // Booleans and vector operations change what a shape *is* (a union, a
+  // subtraction); without this the model sees an unexplained outline.
+  'booleanOperation',
 ])
 
 /**
  * Node fields deliberately dropped, recorded so their absence reads as a
  * decision rather than an oversight. Kept as documentation, not as a runtime
  * filter — the projector is a whitelist, so it never consults this list.
+ *
+ * **This is not an exhaustive inventory of the Figma node type, and it does not
+ * pretend to be.** It names the fields a reader is most likely to go looking
+ * for, so that their absence is visibly a choice. Everything else is dropped by
+ * the whitelist above without being listed here; if you need to know whether a
+ * field survives, the answer is in `KEPT_NODE_FIELDS`, and the answer for
+ * anything not there is no.
  */
 export const DISCARDED_NODE_FIELDS = Object.freeze([
   'constraints',
@@ -54,6 +71,9 @@ export const DISCARDED_NODE_FIELDS = Object.freeze([
   'clipsContent',
   'complexStrokeProperties',
   'exportSettings',
+  // Figma renamed this to `reactions`; the old spelling is kept as well so a
+  // reader searching for either name finds the decision.
+  'reactions',
   'interactions',
   'layoutAlign',
   'layoutGrow',
@@ -64,6 +84,13 @@ export const DISCARDED_NODE_FIELDS = Object.freeze([
   'strokeJoin',
   'strokesIncludedInLayout',
   'layoutGrids',
+  // Vector geometry: an exact path is the renderer's business, not the
+  // designer's, and it is the largest field on any vector node.
+  'fillGeometry',
+  'strokeGeometry',
+  // A font file name, not a design choice — fontFamily and fontWeight already
+  // carry what a designer would say out loud.
+  'fontPostScriptName',
 ])
 
 /** Text style fields kept; the rest are rendering implementation details. */
@@ -72,8 +99,16 @@ export const KEPT_TEXT_STYLE_FIELDS = Object.freeze([
   'fontWeight',
   'fontSize',
   'textAlignHorizontal',
+  // Where the text sits vertically matters as soon as the box is taller than
+  // one line, which is the normal case for a design-system component.
+  'textAlignVertical',
   'lineHeightPx',
   'letterSpacing',
+  // Both are visible design decisions: `textCase` is how a label reads as
+  // uppercase without the characters being typed that way, and `textDecoration`
+  // is a deliberate underline or strikethrough.
+  'textCase',
+  'textDecoration',
 ])
 
 /** Default cap on retained `characters` per text node. */
@@ -147,6 +182,13 @@ function projectGradientStops(stops) {
 
 /**
  * Project one paint (an entry of `fills` or `strokes`).
+ *
+ * Paint-level `blendMode` is dropped on purpose, and unlike the node-level field
+ * of the same name it is not listed in `DISCARDED_NODE_FIELDS` (which is about
+ * nodes). A blend mode describes how a layer composites with what is under it —
+ * a rendering instruction whose effect is exactly what the rendered image
+ * already shows. When a question turns on it, `image_render` is the honest
+ * answer, not a string the model has to interpret.
  *
  * @param {unknown} paint - Raw Figma paint.
  * @returns {Record<string, unknown>|undefined} Projected paint, or `undefined` when unusable.
@@ -236,6 +278,17 @@ export function projectTextStyle(style) {
     const value = source[field]
     if (value !== undefined && value !== null) out[field] = value
   }
+
+  // Line height is one value and three fields. `lineHeightPx` is the useful one
+  // when it exists; when the unit is PERCENT or AUTO, Figma frequently omits it
+  // and the percent is the only measurement there is. The unit is kept so the
+  // model knows which number it is reading, and the percent is kept only when
+  // it is the one that answers the question.
+  if (typeof source.lineHeightUnit === 'string') out.lineHeightUnit = source.lineHeightUnit
+  if (out.lineHeightPx === undefined && typeof source.lineHeightPercent === 'number') {
+    out.lineHeightPercent = source.lineHeightPercent
+  }
+
   return Object.keys(out).length === 0 ? undefined : out
 }
 
@@ -463,6 +516,20 @@ export function projectNode(node, options = {}) {
 
   if (typeof source.opacity === 'number' && source.opacity !== 1) out.opacity = source.opacity
   if (source.visible === false) out.visible = false
+
+  // Rotation is the one dropped field whose absence produces a *wrong*
+  // conclusion rather than a missing detail: `absoluteBoundingBox` is
+  // axis-aligned, so a tilted layer reads as a straight one and the model will
+  // say so with confidence. Emitted only when non-zero, which keeps it free for
+  // the overwhelming majority of nodes.
+  if (typeof source.rotation === 'number' && source.rotation !== 0) out.rotation = source.rotation
+
+  // `isMask` is false on almost every node, so it is emitted like `visible`:
+  // only when it is the interesting value.
+  if (source.isMask === true) {
+    out.isMask = true
+    if (typeof source.maskType === 'string') out.maskType = source.maskType
+  }
 
   if (typeof source.characters === 'string') {
     if (source.characters.length > maxTextChars) {
