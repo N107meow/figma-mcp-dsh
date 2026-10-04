@@ -164,3 +164,76 @@ test('history is skipped for a scan root that is not this repository', async () 
     assert.equal(stdout.includes('history:'), false)
   })
 })
+
+test('a file key pasted beside a label is rejected, however it is spelled', async () => {
+  // The link rule needs a URL; a key copied out of one carries no context at
+  // all. Three spellings of the same assignment, because all three happen in
+  // practice: YAML, JavaScript, and JSON (where the label carries its own
+  // quotes — the spelling the first version of this rule missed).
+  const key = 'Qw9Er8Ty7Ui6Op5' + 'As4Df3G'
+  const content = [
+    `{"fileKey": "${key}"}`,
+    `fileKey: ${key}`,
+    `const key = '${key}'`,
+  ].join('\n')
+  await withTempFile('config.txt', `${content}\n`, async (directory) => {
+    const { code, stderr } = await check(directory)
+    assert.equal(code, 1, 'a bare file key must be rejected')
+    assert.match(stderr, /22-character Figma file key/)
+  })
+})
+
+test('a bare 22-character run with no label still passes', async () => {
+  // The reason the rule carries context: a global 22-character rule would bite
+  // dependency hashes and identifiers like `layoutSizingHorizontal`.
+  const content = ['const hash = "9f8e7d6c5b4a39281706f5e4"', 'layoutSizingHorizontal = "FILL"'].join('\n')
+  await withTempFile('noise.txt', `${content}\n`, async (directory) => {
+    const { code } = await check(directory)
+    assert.equal(code, 0)
+  })
+})
+
+test('a binary file inside the scan surface is rejected until it is allowlisted', async () => {
+  // This repository renders design images; a committed PNG is the most likely
+  // leak it will ever have, and binary files used to be skipped in silence.
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-secrets-'))
+  try {
+    await writeFile(join(directory, 'screenshot.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x03]))
+    const { code, stderr } = await check(directory)
+    assert.equal(code, 1)
+    assert.match(stderr, /binary file inside the scan surface/)
+    assert.match(stderr, /BINARY_ALLOWLIST/)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('history is scanned for shapes and commit messages, not just removed identifiers', async () => {
+  // `git log -S` only knows the literals this file lists, and it walks content
+  // only. A token committed and then deleted, or a key pasted into a commit
+  // message, used to be invisible to the gate.
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-secrets-'))
+  const git = (...args) =>
+    run('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.test', ...args], { cwd: directory })
+  try {
+    await git('init', '-q', '.')
+    await writeFile(join(directory, 'a.txt'), 'clean\n', 'utf8')
+    await git('add', 'a.txt')
+    await git('commit', '-q', '-m', 'add a file')
+
+    // Committed, then deleted: the content survives only in history.
+    const token = ['figd', 'Zz9Yy8Xx7Ww6Vv5Uu4Tt3S'].join('_')
+    await writeFile(join(directory, 'b.txt'), `token: ${token}\n`, 'utf8')
+    await git('add', 'b.txt')
+    await git('commit', '-q', '-m', `config: fileKey=${'Qw9Er8Ty7Ui6Op5' + 'As4Df3G'}`)
+    await git('rm', '-q', 'b.txt')
+    await git('commit', '-q', '-m', 'remove b.txt')
+
+    const { code, stderr } = await check(directory)
+    assert.equal(code, 1)
+    assert.match(stderr, /history \(committed content\): looks like a real Figma personal access token/)
+    assert.match(stderr, /history \(commit message\): a 22-character Figma file key/)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})

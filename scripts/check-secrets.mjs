@@ -78,7 +78,49 @@ export const RULES = Object.freeze([
     pattern: /figma\.com\/(?:file|design|board|proto|slides)\/[A-Za-z0-9]{15,}/g,
     why: 'links to a real Figma file key',
   },
+  {
+    // Blind spot this closes: a key pasted next to a label, with no link around
+    // it. Context is the whole reason this rule can exist — a bare
+    // 22-character run is *not* evidence of anything (see the note above about
+    // `ReadOnlyViolationError` and `layoutSizingHorizontal`), but `fileKey: …`
+    // followed by exactly one 22-character word is.
+    //
+    // `\b` is load-bearing: a 40-character component or style key must not match
+    // its own first 22 characters, and it cannot, because the 23rd character is
+    // still a word character and so there is no boundary.
+    //
+    // The label's own quotes are optional on both sides because the same
+    // assignment is written three ways in practice: `fileKey: K…` (YAML),
+    // `fileKey = 'K…'` (JavaScript), and `"fileKey": "K…"` (JSON).
+    id: 'bare-file-key',
+    pattern: /(?:fileKey|file_key|file key|key)["'`]?\s*[:=]\s*["'`]?([A-Za-z0-9]{22})\b/gi,
+    why: 'a 22-character Figma file key pasted beside a key-like label, with no link around it',
+  },
 ])
+
+/**
+ * Binary files allowed inside the scan surface.
+ *
+ * Empty on purpose. This repository ships no binary artifacts, and the binaries
+ * it could plausibly grow are exactly the ones that must never be committed:
+ * this is a *design-source* plugin, so rendered design images are its natural
+ * output. An allowlist entry is therefore a deliberate act — write the path
+ * (or a pattern) here and say why, rather than letting a PNG through because
+ * binary files are skipped.
+ *
+ * @type {ReadonlyArray<RegExp>}
+ */
+export const BINARY_ALLOWLIST = Object.freeze([])
+
+/**
+ * Whether a binary file is deliberately allowed.
+ *
+ * @param {string} shown - Path as reported, relative to the scan root.
+ * @returns {boolean} Whether the path is allowlisted.
+ */
+export function isAllowedBinary(shown) {
+  return BINARY_ALLOWLIST.some((pattern) => pattern.test(shown))
+}
 
 /**
  * Identifiers that were removed from this repository and must not come back.
@@ -171,7 +213,8 @@ export function isSynthetic(value) {
  * Decide whether one rule match is an acceptable synthetic value.
  *
  * The token rule matches the whole token; the link rule matches a URL prefix,
- * so the file key has to be pulled back out before it can be judged.
+ * so the file key has to be pulled back out before it can be judged; and the
+ * bare-key rule matches a label *and* a key, where only the key is the claim.
  *
  * @param {string} ruleId - Which rule matched.
  * @param {string} match - The matched text.
@@ -179,6 +222,10 @@ export function isSynthetic(value) {
  */
 export function isAllowedMatch(ruleId, match) {
   if (ruleId === 'figma-token') return isSynthetic(match)
+  if (ruleId === 'bare-file-key') {
+    const key = /([A-Za-z0-9]{22})\b\s*$/.exec(match.trim())
+    return key !== null && isSynthetic(key[1])
+  }
   return isSynthetic(match.slice(match.lastIndexOf('/') + 1))
 }
 
@@ -253,7 +300,46 @@ function looksBinary(path, content) {
 }
 
 /**
- * Scan one file's text for violations.
+ * Scan one block of text for violations.
+ *
+ * Shared by the file scan and the history scan, so a rule can never apply to
+ * the working tree while quietly not applying to what was committed — which is
+ * how the shape rules used to behave.
+ *
+ * @param {string} text - Text to scan.
+ * @param {string} shown - Label for reports: a path, or a history marker.
+ * @param {{withLines?: boolean, withLiterals?: boolean}} [options] - Scan options.
+ * @returns {string[]} Human-readable violations.
+ */
+function scanText(text, shown, options = {}) {
+  const withLines = options.withLines ?? true
+  const withLiterals = options.withLiterals ?? true
+  /** @type {string[]} */
+  const violations = []
+
+  if (withLiterals) {
+    for (const literal of FORBIDDEN_LITERALS) {
+      if (text.includes(literal)) {
+        violations.push(`${shown}: contains the removed identifier "${literal}"`)
+      }
+    }
+  }
+
+  for (const rule of RULES) {
+    // A fresh regex per block: a shared /g regex carries lastIndex between
+    // calls, which silently skips matches.
+    const pattern = new RegExp(rule.pattern.source, rule.pattern.flags)
+    for (const match of text.matchAll(pattern)) {
+      if (isAllowedMatch(rule.id, match[0])) continue
+      const where = withLines ? `:${text.slice(0, match.index).split('\n').length}` : ''
+      violations.push(`${shown}${where}: ${rule.why} — "${truncate(match[0])}"`)
+    }
+  }
+  return violations
+}
+
+/**
+ * Scan one file for violations.
  *
  * @param {string} path - Absolute file path.
  * @param {string} root - Scan root, used to shorten reported paths.
@@ -266,30 +352,22 @@ function scanFile(path, root) {
   } catch {
     return []
   }
-  if (looksBinary(path, content)) return []
-
-  const text = content.toString('utf8')
   const shown = relative(root, path) || path
-  /** @type {string[]} */
-  const violations = []
 
-  for (const literal of FORBIDDEN_LITERALS) {
-    if (text.includes(literal)) {
-      violations.push(`${shown}: contains the removed identifier "${literal}"`)
-    }
+  if (looksBinary(path, content)) {
+    // Binary files used to return no violations at all, which made the single
+    // most likely leak in a *design* tooling repository — an exported PNG —
+    // invisible to the gate that exists to catch it. Silence is now a decision:
+    // the path has to be allowlisted, deliberately.
+    if (isAllowedBinary(shown)) return []
+    return [
+      `${shown}: binary file inside the scan surface — rendered design images and other ` +
+        'binaries must not be committed here. If this one is deliberate, add its path to ' +
+        'BINARY_ALLOWLIST in scripts/check-secrets.mjs and say why in the commit message.',
+    ]
   }
 
-  for (const rule of RULES) {
-    // A fresh regex per file: a shared /g regex carries lastIndex between files,
-    // which silently skips matches.
-    const pattern = new RegExp(rule.pattern.source, rule.pattern.flags)
-    for (const match of text.matchAll(pattern)) {
-      if (isAllowedMatch(rule.id, match[0])) continue
-      const line = text.slice(0, match.index).split('\n').length
-      violations.push(`${shown}:${line}: ${rule.why} — "${truncate(match[0])}"`)
-    }
-  }
-  return violations
+  return scanText(content.toString('utf8'), shown)
 }
 
 /**
@@ -303,33 +381,95 @@ function truncate(value) {
 }
 
 /**
- * Check git history for the literals this repository removed.
+ * Run a git command and return its stdout, or `undefined` when git cannot answer.
  *
- * Only `git log -S` is used, which walks file content changes: commit metadata
- * (the committer's own name and address) is not content and is never reported.
+ * @param {string} root - Repository directory.
+ * @param {string[]} args - Git arguments.
+ * @returns {string|undefined} Output.
+ */
+function gitOutput(root, args) {
+  try {
+    return execFileSync('git', args, {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      maxBuffer: 256 * 1024 * 1024,
+    })
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Whether a directory is inside a git work tree, and so has history to scan.
+ *
+ * @param {string} root - Directory to ask about.
+ * @returns {boolean} Whether git history exists there.
+ */
+function hasHistory(root) {
+  try {
+    execFileSync('git', ['rev-parse', '--git-dir'], { cwd: root, stdio: ['ignore', 'ignore', 'ignore'] })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Check git history, because a leak in an old commit is still a leak.
+ *
+ * Three closets, each one previously shut:
+ *
+ * 1. **Removed identifiers in committed content** — `git log -S`, which walks
+ *    content diffs. Commit *metadata* is not content, so the committer's own
+ *    identity is never reported by it.
+ * 2. **The shape rules over history** — `-S` only knows the literals listed in
+ *    this file, so a token or a file link that was committed and later deleted
+ *    stayed invisible. The rules now run over the whole patch stream.
+ * 3. **Commit messages** — no content walk reaches them, and a message gets
+ *    quoted and pasted like anything else.
+ *
+ * Dangling objects are reported as a warning rather than a failure: nothing
+ * reachable points at them, so an ordinary push cannot publish them — but they
+ * are still readable from a copy of this working directory.
  *
  * @param {string} root - Repository to search.
+ * @param {string[]} warnings - Collector for non-fatal findings.
  * @returns {string[]} Human-readable violations.
  */
-function scanHistory(root) {
+function scanHistory(root, warnings) {
   /** @type {string[]} */
   const violations = []
+
   for (const literal of FORBIDDEN_LITERALS) {
-    let hits = ''
-    try {
-      hits = execFileSync('git', ['log', '--all', '-S', literal, '--oneline'], {
-        cwd: root,
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim()
-    } catch {
-      return violations
-    }
+    const hits = (gitOutput(root, ['log', '--all', '-S', literal, '--oneline']) ?? '').trim()
     if (hits.length > 0) {
       const count = hits.split('\n').length
       violations.push(`history: "${literal}" still appears in ${count} commit(s); history must be rewritten, not just the files`)
     }
   }
+
+  const patches = gitOutput(root, ['log', '--all', '-p', '--format=commit %H', '-U0'])
+  if (patches !== undefined) {
+    // Literals are already covered above, with a message that names the commit
+    // count; this pass exists for the shape rules alone.
+    violations.push(...scanText(patches, 'history (committed content)', { withLines: false, withLiterals: false }))
+  }
+
+  const messages = gitOutput(root, ['log', '--all', '--format=%H %s%n%b'])
+  if (messages !== undefined) {
+    violations.push(...scanText(messages, 'history (commit message)', { withLines: false }))
+  }
+
+  const dangling = gitOutput(root, ['fsck', '--dangling', '--no-progress']) ?? ''
+  const danglingCount = dangling.split('\n').filter((line) => line.includes('dangling')).length
+  if (danglingCount > 0) {
+    warnings.push(
+      `${danglingCount} dangling object(s) still hold old content; run \`git gc --prune=now\` ` +
+        'before handing out a copy of this directory',
+    )
+  }
+
   return violations
 }
 
@@ -340,18 +480,28 @@ function scanHistory(root) {
  */
 function main() {
   const { root, history, quiet } = parseArgs(process.argv.slice(2))
-  const scanningRepo = root === REPO_ROOT
+  const scanningHistory = history && hasHistory(root)
 
   if (!quiet) console.log(`scanning for secrets and private identifiers under ${relative(REPO_ROOT, root) || '.'}`)
 
   const files = listCandidateFiles(root)
   const violations = []
   for (const file of files) violations.push(...scanFile(file, root))
-  if (history && scanningRepo) violations.push(...scanHistory(root))
 
-  if (violations.length > 0) {
-    console.error(`\n${violations.length} secret/identifier violation(s):\n`)
-    for (const violation of violations) console.error(`  ✖ ${violation}`)
+  /** @type {string[]} */
+  const warnings = []
+  if (scanningHistory) violations.push(...scanHistory(root, warnings))
+
+  for (const warning of warnings) console.error(`  ⚠️  ${warning}`)
+
+  // A value committed twice is one violation, not two: the history scan sees the
+  // same token in the commit that added it and the one that deleted it, and a
+  // report that repeats itself is a report people stop reading.
+  const unique = [...new Set(violations)]
+
+  if (unique.length > 0) {
+    console.error(`\n${unique.length} secret/identifier violation(s):\n`)
+    for (const violation of unique) console.error(`  ✖ ${violation}`)
     console.error(
       '\nReplace the offending value with a synthetic one of the same shape, or — if it is\n' +
         'deliberately synthetic — add it to SYNTHETIC_ALLOWLIST in scripts/check-secrets.mjs.\n' +
@@ -363,7 +513,12 @@ function main() {
 
   if (!quiet) {
     console.log(`  ✅ ${files.length} file(s): no tokens, no real Figma links, no removed identifiers`)
-    if (history && scanningRepo) console.log(`  ✅ history: none of the ${FORBIDDEN_LITERALS.length} removed identifier(s) present`)
+    if (scanningHistory) {
+      console.log(
+        `  ✅ history: none of the ${FORBIDDEN_LITERALS.length} removed identifier(s) present, ` +
+          'and no token or file link in any commit content or message',
+      )
+    }
   }
   if (!quiet) console.log('\nno secrets or private identifiers found.')
 }

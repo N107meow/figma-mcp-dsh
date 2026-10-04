@@ -88,7 +88,7 @@ export const ALL_SPECS = Object.freeze([...fileSpecs, ...imageSpecs, ...componen
 
 `src/core/**` 是**零宿主依赖**的：不得 `import '@deepseek-ai/*'`，不得出现 `ctx`。只有 `src/adapter/**` 允许碰 DSH。
 
-这不是洁癖，是"将来补 MCP 适配器不用重构"的唯一保证。`npm run check:layering` 静态守门，而且**门禁本身有测试证明它会失败**（`test/core/layering.test.js` 故意注入违规代码）。
+这不是洁癖：它是**离线可测性**（测试不启动 DSH、不联网就全绿）与**依赖注入缝**（fetch / 时钟 / 睡眠都可替换，时间相关的行为因此能确定性复现）的前提。`npm run check:layering` 静态守门，而且**门禁本身有测试证明它会失败**（`test/core/layering.test.js` 故意注入违规代码）。
 
 推论：**核心逻辑要能在没有 DSH 的进程里跑**——所以 `src/core/` 不碰 `fs`（落盘走 `spool-sink.js` 定义的接口，实现放在 adapter），也不自己 `fetch`（`http.js` 接受注入的 `fetchImpl`）。
 

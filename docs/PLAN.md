@@ -1010,7 +1010,9 @@ P3 是锦上添花。P4 已确认不做，故不在估算内——将来若要�
 - **A = DSH 原生 Cordis 插件** —— **P0 交付，也是当前唯一的交付形态**。工具名干净、直接读 `ctx.credentials`、上下文开销最小、支持 `patchReload: live`。
 - **B = MCP 适配器** —— **当前不做，且不保留在路线图里。** 但「以后可以补回来」是被 CI 守住的架构不变量，不是口头承诺，见 §12.3.1。
 
-**成立前提（§4.1 的分层纪律）**：`core` 不含任何 DSH 依赖、不含 `ctx`，公开接口保持宿主中立。这条纪律**不是为了 B 才加的** —— 它是 §0.1 组件自足性的直接推论，同时买到三样东西：可独立测试、抗 DSH 版本漂移、以及**将来补 B 时不用重构**。
+**成立前提（§4.1 的分层纪律）**：`core` 不含任何 DSH 依赖、不含 `ctx`，公开接口保持宿主中立。这条纪律**不是为了 B 才加的** —— 它是 §0.1 组件自足性的直接推论，同时买到三样东西：**可独立测试**（测试不启动 DSH、不联网）、抗 DSH 版本漂移、以及**依赖注入缝**（fetch / 时钟 / 睡眠都是注入的，限流、退避、缓存这些最难测的时间相关行为因此可以确定性重放）。
+
+> **2026-10 修订**：这段话过去把第三条写成"将来补 B 时不用重构"。B 已明确放弃（§12.3.1 之外，本轮复核确认它不在路线图里），所以那个理由不再成立——但纪律本身照旧，因为它真正的买方是上面那三样。**一条纪律如果只剩下一个已经作废的理由，它就会被后人当成无主的债务。**
 
 ### 9.1.2 包名：**`figma-mcp-dsh`** ✅ 已定（2026-09-24 由 `dsh-plugin-figma` 整体改名，理由见文末存档）
 
@@ -1164,20 +1166,24 @@ GET https://registry.npmjs.org/dsh-figma  ->  200（已存在）
 
 这张表是给评审和 code review 用的：每条纪律都配一个**可执行/可观察**的检查方式，避免"听起来很对"的设计悄悄退化。实现时建议直接把这表变成 PR checklist。
 
-| # | 纪律 | 理论出处 | 怎么验证（不靠自觉） |
-|---|---|---|---|
-| 1 | 每一份子资源都在 `apply()` 里注册 disposer（WebSocket、定时器、缓存驱逐、事件监听、工具） | revertible effects | 反复 `stop` / `update` 插件 20 次，观察句柄数与定时器数回到基线（`process._getActiveHandles()` 或计数器断言） |
-| 2 | 不使用不受管的全局副作用（模块级单例、`setInterval`、`process.on`） | revertible effects | CI 里 grep 禁止模式：`^const .* = new .*\(\)$`（模块级）、裸 `setInterval`、`process.on(` |
-| 3 | 依赖一律用 coeffect 声明，不手写探测 | reactive coeffects | code review 拒绝 `apply` 内的 `if (bridge.isUp())` / 轮询逻辑；离线行为由 PENDING 表达 |
-| 4 | 可选依赖用 `ctx.get(name)` + undefined 检查，硬依赖用 `inject` | context paradigm | 缺服务时插件应停 PENDING 而非抛异常；用"临时摘掉 credentials 行"实测 |
-| 5 | `core` 不 import 任何 `@deepseek-ai/*` | 组件自足性 | `dependency-cruiser` 或简单 grep 作为 CI 门禁；`packages/core/package.json` 里没有 DSH 依赖 |
-| 6 | 共享可变状态（限流桶、缓存）挂在 host 面 context，不放进 per-session 域 | observational equivalence | 开第二个 session，断言两 session 共用同一个桶实例（否则额度会被翻倍消耗） |
-| 7 | 跨组件通信只走 `ctx`（服务/事件），不 import 彼此实现 | observational equivalence | 适配器之间零 import；`core` 只暴露接口 |
-| 8 | 卸载后不得残留对模型的可见影响 | observational equivalence | 卸载插件后 `Tool.listTools` 必须回到装载前的工具集（做一次快照 diff） |
-| 9 | **只读**：registry 中不存在写能力，派发前断言 `method === 'GET'` | 项目决策（§9.2） | CI 断言：所有 spec 的 `method` 均为 `GET`；故意注入一条 `POST` spec，运行期必须拒绝 |
-| 10 | **不从零值推断因果**：任何"字段为空"的结论都必须先用**改变输入**验证 | §1.4(2) 的教训 | 遇到可疑空集时，先构造/索取一个非空样本重测，再下结论；写进 issue 模板 |
+**状态列是 2026-10 逐条复核的结果，不是承诺。** 标 ❌ 不等于设计错了，而是"目前还没有机器守着它"——评审者据此判断一条纪律的可信度，比读十条自我声明有用。
+
+| # | 纪律 | 理论出处 | 怎么验证（不靠自觉） | 状态（2026-10 复核） |
+|---|---|---|---|---|
+| 1 | 每一份子资源都在 `apply()` 里注册 disposer（WebSocket、定时器、缓存驱逐、事件监听、工具） | revertible effects | 反复 `stop` / `update` 插件 20 次，观察句柄数与定时器数回到基线（`process._getActiveHandles()` 或计数器断言） | ❌ **未验证** —— 工具注册那一半已由 `test/adapter/unload.test.js` 覆盖（它断言每个注册都是 ctx 拥有的 effect）；"反复 stop/update 看句柄数"的实验仍未建 |
+| 2 | 不使用不受管的全局副作用（模块级单例、`setInterval`、`process.on`） | revertible effects | CI 里 grep 禁止模式：`^const .* = new .*\(\)$`（模块级）、裸 `setInterval`、`process.on(` | ❌ **未验证（待建门禁）** —— 人工复核的实情：`src/` 中无 `setInterval`、无 `process.on(`，模块级 `new Set(...)` 全部是冻结的常量表；但没有门禁阻止下一个人加 |
+| 3 | 依赖一律用 coeffect 声明，不手写探测 | reactive coeffects | code review 拒绝 `apply` 内的 `if (bridge.isUp())` / 轮询逻辑；离线行为由 PENDING 表达 | ❌ **未验证（review 项）** —— `inject: ['tools','credentials']` 是声明式的，但"apply 里没有手写探测"只能靠人读 |
+| 4 | 可选依赖用 `ctx.get(name)` + undefined 检查，硬依赖用 `inject` | context paradigm | 缺服务时插件应停 PENDING 而非抛异常；用"临时摘掉 credentials 行"实测 | ⚠️ **部分验证** —— `test/adapter/adapter.test.js` 断言了 `inject` 的内容与名称；"摘掉 credentials 行 → 停在 PENDING 而非抛异常"是手工实验，未自动化 |
+| 5 | `core` 不 import 任何 `@deepseek-ai/*` | 组件自足性 | `dependency-cruiser` 或简单 grep 作为 CI 门禁；`packages/core/package.json` 里没有 DSH 依赖 | ✅ **已验证** —— `npm run check:layering`（在 `npm run verify` 内）静态检查 19 个文件；`test/core/layering.test.js` 故意注入违规，证明门禁**会**失败 |
+| 6 | 共享可变状态（限流桶、缓存）挂在 host 面 context，不放进 per-session 域 | observational equivalence | 开第二个 session，断言两 session 共用同一个桶实例（否则额度会被翻倍消耗） | ⚠️ **部分验证** —— `test/adapter/unload.test.js` 钉住"两个工具命中同一个 provider 实例"（缓存、限流桶、失效凭据记忆都在它内部）；**跨 session 共用同一实例的实验仍未建**（需要真启动两个 DSH session） |
+| 7 | 跨组件通信只走 `ctx`（服务/事件），不 import 彼此实现 | observational equivalence | 适配器之间零 import；`core` 只暴露接口 | ⚠️ **部分验证** —— `core` 只暴露接口、`check:layering` 管住 core→宿主方向；反向（适配器互相 import）无门禁，因为当前只有一个适配器，还没有第二个可 import |
+| 8 | 卸载后不得残留对模型的可见影响 | observational equivalence | 卸载插件后 `Tool.listTools` 必须回到装载前的工具集（做一次快照 diff） | ✅ **已验证** —— `test/adapter/unload.test.js`：镜像宿主 effect 语义的 mock ctx，装载→断言两个工具→逆序释放→断言回到装载前快照。镜像依据是安装源码逐行核对（`dsh-tools/lib/index.js:2878-2887` → `dsh-scope/lib/index.js:189-218` → cordis `Fiber._unload`） |
+| 9 | **只读**：registry 中不存在写能力，派发前断言 `method === 'GET'` | 项目决策（§9.2） | CI 断言：所有 spec 的 `method` 均为 `GET`；故意注入一条 `POST` spec，运行期必须拒绝 | ✅ **已验证** —— `test/core/capability.test.js` 两条（校验期拒绝、派发期拒绝）+ `check:layering` 的静态断言，三处独立 |
+| 10 | **不从零值推断因果**：任何"字段为空"的结论都必须先用**改变输入**验证 | §1.4(2) 的教训 | 遇到可疑空集时，先构造/索取一个非空样本重测，再下结论；写进 issue 模板 | ❌ **未验证（流程项）** —— 这条约束的是人的判断，没有机械化检查；`.github/ISSUE_TEMPLATE/bug.yml` 要求贴证据，但尚未把这条规则写进去 |
 
 > 这张表的实际价值在第 6 条和第 8 条上：它们是最容易被"先跑通再说"牺牲掉的两条，而恰恰是它们决定了插件能不能在长跑的 harness 里共处。
+
+> **关于第 5 条的动机（2026-10 修订）**：这条纪律过去被写成"为将来补 MCP 适配器铺路"。MCP 适配器已明确放弃（§12.3.1），所以那个理由**不再成立**，纪律本身保留是因为它真正买到的是另外两样：**离线可测性**（200 项测试不启动 DSH、不联网，见 `npm test`）与**依赖注入缝**（fetch / 时钟 / 睡眠都是注入的，所以限流、退避、缓存这些最难测的行为可以在毫秒内确定性复现）。一条纪律如果只剩下一个已经作废的理由，它就会被当成无主的债务。
 
 ---
 

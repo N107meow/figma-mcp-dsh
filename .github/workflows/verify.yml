@@ -1,0 +1,91 @@
+# Continuous integration.
+#
+# Two jobs, because they answer different questions:
+#
+#   verify        — do the gates and the test suite pass on this commit?
+#   compatibility — would a given DSH version actually load this plugin?
+#
+# The second one is the reason this file exists at all. `0.1.0` shipped with a
+# peer range that no local check questioned, and every user's install was
+# rejected by the host. The mismatch is invisible to a test suite that never
+# asks the host's own question, so the host's question is asked here, once per
+# supported DSH version.
+#
+# No Figma quota is used: the 14 live-data tests skip without `.env.local`, and
+# `check:test-counts` asserts that they skipped.
+
+name: verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: gates and tests
+    runs-on: ubuntu-latest
+    # The suite includes a real 24-second timer test, so this is generous on
+    # purpose rather than tight.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: `check:secrets` scans every commit's content and
+          # message, and a shallow clone would make that scan quietly vacuous.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install
+        # `npm install`, not `npm ci`: this repository deliberately ships no
+        # lockfile, and the host packages are peers (npm 7+ installs them).
+        run: npm install --no-audit --no-fund
+
+      - name: Gates and tests
+        run: npm run verify
+
+  compatibility:
+    name: dsh ${{ matrix.dsh }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        dsh:
+          # The oldest version the peer range claims to support — the boundary
+          # that a careless widening would break without anyone noticing.
+          - '0.1.5-rc.2'
+          # What is deployed today.
+          - '0.2.0-rc.2'
+          # A later patch in the same minor: support must not be a single
+          # version that happens to work.
+          - '0.2.1'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install
+        run: npm install --no-audit --no-fund
+
+      - name: Would dsh ${{ matrix.dsh }} load this plugin?
+        run: npm run check:deps -- --runtime ${{ matrix.dsh }}
+
+      # One negative control, run once: a version outside the range must be
+      # refused. Without this, a range that quietly grew an open upper bound
+      # would still pass every cell above.
+      - name: The upper bound still refuses an unvalidated version
+        if: matrix.dsh == '0.2.0-rc.2'
+        run: |
+          if npm run check:deps -- --runtime 0.3.0; then
+            echo "::error::dsh 0.3.0 was accepted — the peer range lost its upper bound"
+            exit 1
+          fi
+          echo "0.3.0 refused, as intended"
