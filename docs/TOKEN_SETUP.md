@@ -4,10 +4,32 @@
 
 ## 1. 拿一个令牌
 
-1. 打开 [figma.com/settings](https://www.figma.com/settings) → **Security** 标签页；
-2. 找到 **Personal access tokens** → *Generate new token*；
-3. 填名字与有效期，**勾选下面四个只读 scope**，然后生成；
-4. **立刻复制**——明文只显示这一次（见 §4）。
+四步走完就能拿到。下面截图是 **Figma 中文界面**，括号里给出英文界面下的对应字样——两种界面都能照着做。
+
+### ① 打开设置
+
+点 Figma 左上角**你的头像**，在菜单里选 **设置**（Settings）。
+
+![点头像 → 设置](images/token-1-open-settings.png)
+
+### ② 切到「安全」标签页
+
+在设置对话框顶部选 **安全**（Security），找到 **个人访问令牌**（Personal access tokens）一栏，点 **生成新的令牌**（Generate new token）。
+
+![设置 → 安全 → 个人访问令牌 → 生成新的令牌](images/token-2-security-tab.png)
+
+### ③ 填名称、选有效期、勾 scope
+
+- **Token name**：取个以后能认出来的名字（例如 `dsh-figma-readonly`）；
+- **Expiration**：建议 `90 days`——个人访问令牌最长就是 90 天（原因见 §4）；
+- **Scopes**：**只勾下面四个只读 scope**（在「文件」「设计系统」分组下），**不要勾任何 write**；
+- 最后点 **Generate token**。按钮在你勾 scope 之前是灰的，这是正常的。
+
+![填写名称、有效期，并勾选只读 scope](images/token-3-token-form.png)
+
+### ④ 立刻复制
+
+令牌明文**只显示这一次**（见 §4），关掉对话框就再也看不到。
 
 插件需要的只读 scope，一行照抄：
 

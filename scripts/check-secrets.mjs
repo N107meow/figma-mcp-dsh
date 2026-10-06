@@ -101,16 +101,24 @@ export const RULES = Object.freeze([
 /**
  * Binary files allowed inside the scan surface.
  *
- * Empty on purpose. This repository ships no binary artifacts, and the binaries
- * it could plausibly grow are exactly the ones that must never be committed:
- * this is a *design-source* plugin, so rendered design images are its natural
- * output. An allowlist entry is therefore a deliberate act — write the path
- * (or a pattern) here and say why, rather than letting a PNG through because
- * binary files are skipped.
+ * Every entry is a deliberate act. This is a *design-source* plugin, so the
+ * binaries it could plausibly grow are exactly the ones that must never be
+ * committed — rendered design images are its natural output — and the default
+ * is to fail rather than to skip.
+ *
+ * The three entries are screenshots of the Figma **user interface**, used by the
+ * token-setup walkthrough in `docs/TOKEN_SETUP.md`. They are listed one path at
+ * a time, not as a directory pattern: `/^docs\/images\//` would also wave
+ * through whatever binary lands there next, which is precisely the hole this
+ * list exists to keep shut. Adding a fourth image means adding a fourth line.
  *
  * @type {ReadonlyArray<RegExp>}
  */
-export const BINARY_ALLOWLIST = Object.freeze([])
+export const BINARY_ALLOWLIST = Object.freeze([
+  /^docs\/images\/token-1-open-settings\.png$/,
+  /^docs\/images\/token-2-security-tab\.png$/,
+  /^docs\/images\/token-3-token-form\.png$/,
+])
 
 /**
  * Whether a binary file is deliberately allowed.
