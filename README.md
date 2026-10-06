@@ -105,7 +105,21 @@ refs:
 
 你也可以通过环境变量 `FIGMA_TOKEN` 提供令牌。插件会在每次调用时重新读取凭据，因此更换令牌后不需要重启 DSH。
 
-有关令牌创建、权限选择和轮换方式，请阅读 [Figma 令牌配置指南](./docs/TOKEN_SETUP.md)。
+#### 三步拿到令牌
+
+**① 打开设置** —— 点 Figma 左上角**你的头像**，在菜单里选 **设置**（Settings）。
+
+![点头像 → 设置](https://cdn.jsdelivr.net/gh/N107meow/figma-mcp-dsh@8ca5f60632bb3e2cd9f664809023ec81041f5dc7/docs/images/token-1-open-settings.png)
+
+**② 切到「安全」标签页** —— 在设置对话框顶部选 **安全**（Security），找到 **个人访问令牌**（Personal access tokens），点 **生成新的令牌**（Generate new token）。
+
+![设置 → 安全 → 个人访问令牌 → 生成新的令牌](https://cdn.jsdelivr.net/gh/N107meow/figma-mcp-dsh@8ca5f60632bb3e2cd9f664809023ec81041f5dc7/docs/images/token-2-security-tab.png)
+
+**③ 填名称、选有效期、勾只读 scope** —— 名字取个以后认得出的（例如 `dsh-figma-readonly`）；有效期建议选 `90 days`（个人访问令牌最长就是 90 天）；**只勾下面四个只读 scope**，不要勾任何 write，然后点 **Generate token**。生成后**立刻复制**——明文只显示这一次。
+
+![填写名称、有效期，并勾选只读 scope](https://cdn.jsdelivr.net/gh/N107meow/figma-mcp-dsh@8ca5f60632bb3e2cd9f664809023ec81041f5dc7/docs/images/token-3-token-form.png)
+
+> 截图是中文界面，括号里是英文界面下的对应字样。完整版（scope 逐条说明、轮换与失效排查）见 [Figma 令牌配置指南](./docs/TOKEN_SETUP.md)。
 
 ## 使用示例
 

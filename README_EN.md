@@ -105,7 +105,21 @@ refs:
 
 You can also set the `FIGMA_TOKEN` environment variable. The plugin resolves credentials for every operation, so replacing a token does not require a DSH restart.
 
-Read the [Figma token setup guide](./docs/TOKEN_SETUP.md) for token creation, scope selection, and rotation instructions.
+#### Getting a token in three steps
+
+**1. Open Settings** — click **your avatar** in Figma's top-left corner and choose **Settings**.
+
+![Avatar → Settings](https://cdn.jsdelivr.net/gh/N107meow/figma-mcp-dsh@8ca5f60632bb3e2cd9f664809023ec81041f5dc7/docs/images/token-1-open-settings.png)
+
+**2. Switch to the Security tab** — in the settings dialog, open **Security**, find **Personal access tokens**, and click **Generate new token**.
+
+![Settings → Security → Personal access tokens → Generate new token](https://cdn.jsdelivr.net/gh/N107meow/figma-mcp-dsh@8ca5f60632bb3e2cd9f664809023ec81041f5dc7/docs/images/token-2-security-tab.png)
+
+**3. Name it, pick an expiry, tick read-only scopes** — use a name you will recognise later (for example `dsh-figma-readonly`); set **Expiration** to `90 days` (90 days is the maximum for a personal access token); tick **only the four read-only scopes below** and no write scope, then click **Generate token**. **Copy it immediately** — the value is shown once.
+
+![Name, expiration, and read-only scopes](https://cdn.jsdelivr.net/gh/N107meow/figma-mcp-dsh@8ca5f60632bb3e2cd9f664809023ec81041f5dc7/docs/images/token-3-token-form.png)
+
+> The screenshots show the Chinese interface; the English labels are given in bold. The [Figma token setup guide](./docs/TOKEN_SETUP.md) covers each scope, rotation, and what to do when a token stops working.
 
 ## Usage examples
 
