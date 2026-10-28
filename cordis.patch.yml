@@ -1,0 +1,7 @@
+# figma-mcp-dsh is a self-enabling DSH bundle. Installing the package adds it
+# to the profile's `dsh.profile.bundles`; this layer inserts the plugin row.
+# `id` is the stable Cordis row id (user overrides target it); `name` is the
+# package the loader resolves.
+- insert:
+    - id: figma
+      name: 'figma-mcp-dsh'
