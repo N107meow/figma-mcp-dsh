@@ -19,11 +19,9 @@ The plugin helps models understand designs without changing cloud files:
 
 ## Requirements
 
-Install these dependencies before you add the plugin:
-
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
+- **DeepSeek Harness ≥ 0.2.0-rc.2**. Verified: desktop app `0.2.1-rc.3`, web edition `0.2.1-rc.2` and `0.2.0-rc.2`. **On DSH 0.1.x, stay on `figma-mcp-dsh@0.1.3`** — do not upgrade to 0.2.0.
 - Node.js 20 or later
-- `pnpm`
+- `pnpm` (needed for CLI installs; the desktop app's plugin page uses its bundled pnpm)
 - A Figma Personal Access Token (PAT) with access to the target file
 
 The Figma token requires these read-only scopes:
@@ -37,54 +35,63 @@ file_dev_resources:read
 
 ## Installation and configuration
 
-The following steps install the plugin in the DSH `web` profile and configure Figma access.
+> **The plugin ships as a bundle**: installing it mounts it automatically, so **a fresh install no longer needs a hand-written `cordis.patch.yml` entry**.
+>
+> **The two editions have separate profiles**: the desktop app always uses `desktop`, `dsh web` defaults to `web`. A plugin installed into one profile only affects that edition. **Using both? Install it twice.**
 
-### 1. Install from GitHub
+### 1. Install into the desktop app
 
-Install the plugin in your DSH profile:
+Desktop app → **Settings → Plugins → Add plugin** → enter `figma-mcp-dsh` → **Install / Enable**; restart when prompted.
 
-```bash
-cd ~/.dsh/profiles/web
-pnpm add github:N107meow/figma-mcp-dsh
-```
+That is all: the plugin manager writes `figma-mcp-dsh` into `dsh.profile.bundles` in `~/.dsh/profiles/desktop/package.json`, and the patch file shipped inside the package inserts the `figma` row.
 
-#### Other installation methods · npm
+### 2. Install into the web edition
 
-The plugin is also published to npm, and the registry version tracks this repository. If you prefer npm:
+The **Plugins** page in `dsh web` goes through the same entry point, or use the CLI:
 
 ```bash
 dsh plugin --profile web add figma-mcp-dsh
 ```
 
-Or install it directly in the profile directory with `pnpm`:
+Same result: the package is selected into `dsh.profile.bundles`. Restart, or wait for the hot reload.
+
+### 3. Other installation methods
+
+#### From GitHub
+
+```bash
+dsh plugin --profile web add github:N107meow/figma-mcp-dsh
+```
+
+The GitHub path goes through the plugin manager too, so the bundle is added automatically.
+
+#### Dependency only (not recommended)
 
 ```bash
 cd ~/.dsh/profiles/web
-pnpm add figma-mcp-dsh
+pnpm add figma-mcp-dsh          # or pnpm add github:N107meow/figma-mcp-dsh
 ```
 
-After installing from npm, upgrade with:
+`pnpm add` **installs the dependency but does not select the package into `dsh.profile.bundles`**, so nothing is mounted. If you insist on this route, add `"figma-mcp-dsh"` to the profile's `dsh.profile.bundles` array yourself.
 
-```bash
-dsh plugin --profile web update figma-mcp-dsh
-```
-
-#### Local development
-
-Use a `link:` dependency instead when you develop the plugin locally:
+#### Local development (`link:`)
 
 ```bash
 cd ~/.dsh/profiles/web
 pnpm add link:/absolute/path/to/figma-mcp-dsh
 ```
 
-Local development also requires host packages that match your current DSH version. Run `npm run check:deps` in the plugin repository to verify the versions.
+`link:` is a development path and also does not add the bundle: add the row from §4 by hand (the pre-0.2.0 behaviour still works). Local development also requires host packages that match your DSH version; `npm run check:deps` verifies them.
 
-> **The plugin and DSH versions must match.** DSH validates the plugin's `peerDependencies`, and a mismatch makes the **installation fail outright** (`installation rejected: … is incompatible with dsh …`). If you see that message, the plugin is older than your DSH — upgrade the plugin. Do not work around it with `dsh plugin allow-version`: that exemption exists for "known incompatible, risk accepted", not for "the wrong version was installed".
+### 4. Confirm it is mounted (and the manual fallback)
 
-### 2. Mount the plugin
+```bash
+dsh --profile web --dump-config | grep -A2 -- "- id: figma"
+```
 
-Add this entry to `~/.dsh/profiles/web/cordis.patch.yml`:
+If you see `- id: figma` / `name: figma-mcp-dsh`, you are done.
+
+**Manual fallback** (old installs, `link:` development, or an auto-mount that failed): append this to `~/.dsh/profiles/<name>/cordis.patch.yml`
 
 ```yaml
 - insert:
@@ -92,9 +99,9 @@ Add this entry to `~/.dsh/profiles/web/cordis.patch.yml`:
       name: figma-mcp-dsh
 ```
 
-Changes to `cordis.patch.yml` load without a restart. Restart DSH after the first installation or any dependency update.
+> If the bundle is already in `dsh.profile.bundles`, this row duplicates the same id: measured behaviour is no error (the later row wins), but the duplicate should be removed.
 
-### 3. Configure the Figma token
+### 5. Configure the Figma token
 
 Store the token in `~/.dsh/.credentials.yaml`:
 
@@ -120,6 +127,29 @@ You can also set the `FIGMA_TOKEN` environment variable. The plugin resolves cre
 ![Name, expiration, and read-only scopes](https://cdn.jsdelivr.net/gh/N107meow/figma-mcp-dsh@8ca5f60632bb3e2cd9f664809023ec81041f5dc7/docs/images/token-3-token-form.png)
 
 > The screenshots show the Chinese interface; the English labels are given in bold. The [Figma token setup guide](./docs/TOKEN_SETUP.md) covers each scope, rotation, and what to do when a token stops working.
+
+### 6. Upgrading, and migrating from 0.1.x
+
+**Upgrade**:
+
+```bash
+dsh plugin --profile <name> update figma-mcp-dsh
+```
+
+> ⚠️ **An upgrade does not necessarily add the bundle**: the plugin manager only selects the package into `dsh.profile.bundles` on a *fresh* install. When the dependency already exists, `reconcile` does not treat it as a new bundle. Confirm with §4 after upgrading.
+
+**Migrating from 0.1.x (the order matters)**:
+
+1. Make sure the new version is installed and **confirm** `figma-mcp-dsh` is in `dsh.profile.bundles` (if it is not, reinstall once, or append `"figma-mcp-dsh"` to the end of `dsh.profile.bundles` in the profile's `package.json`, keeping the existing entries);
+2. **Only after that**, delete the `figma` row that 0.1.x required you to write by hand in `cordis.patch.yml`.
+
+Doing it the other way round leaves a short window where the plugin is installed but not mounted.
+
+**Version gate**: `0.2.0` requires DSH `>= 0.2.0-rc.2`; on DSH 0.1.x stay on `figma-mcp-dsh@0.1.3`.
+
+> **The plugin and DSH versions must match.** DSH validates the plugin's `peerDependencies`, and a mismatch makes the **installation fail outright** (`installation rejected: … is incompatible with dsh …`). That message means the wrong version was chosen — choose the right one. Do not work around it with `dsh plugin allow-version`: that exemption exists for "known incompatible, risk accepted".
+
+**The token is global**: `~/.dsh/.credentials.yaml` is shared by both editions, so it only needs configuring once (a custom `DSH_HOME` needs its own copy).
 
 ## Usage examples
 

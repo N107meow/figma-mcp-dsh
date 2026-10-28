@@ -64,14 +64,14 @@ jobs:
       fail-fast: false
       matrix:
         dsh:
-          # The oldest version the peer range claims to support — the boundary
-          # that a careless widening would break without anyone noticing.
-          - '0.1.5-rc.2'
-          # What is deployed today.
+          # Oldest supported, and the version the bundle install smoke was run on.
           - '0.2.0-rc.2'
-          # A later patch in the same minor: support must not be a single
-          # version that happens to work.
-          - '0.2.1'
+          # Open-source web release currently on npm `latest`.
+          - '0.2.1-rc.2'
+          # Desktop app currently deployed.
+          - '0.2.1-rc.3'
+          # npm `next`, to catch a patch regression before it ships.
+          - '0.2.1-rc.4'
     steps:
       - uses: actions/checkout@v4
 
@@ -85,14 +85,16 @@ jobs:
       - name: Would dsh ${{ matrix.dsh }} load this plugin?
         run: npm run check:deps -- --runtime ${{ matrix.dsh }}
 
-      # One negative control, run once: a version outside the range must be
-      # refused. Without this, a range that quietly grew an open upper bound
-      # would still pass every cell above.
-      - name: The upper bound still refuses an unvalidated version
+      # Negative control, run once: both ends of the range must be real. Without
+      # this, a range that quietly grew an open upper bound would still pass
+      # every cell above, and a lower bound that drifted would never be noticed.
+      - name: Out-of-range versions are refused
         if: matrix.dsh == '0.2.0-rc.2'
         run: |
-          if npm run check:deps -- --runtime 0.3.0; then
-            echo "::error::dsh 0.3.0 was accepted — the peer range lost its upper bound"
-            exit 1
-          fi
-          echo "0.3.0 refused, as intended"
+          for version in 0.1.5-rc.2 0.3.0-rc.1; do
+            if npm run check:deps -- --runtime "$version"; then
+              echo "::error::dsh $version was accepted — the peer range boundary is wrong"
+              exit 1
+            fi
+            echo "dsh $version refused, as intended"
+          done

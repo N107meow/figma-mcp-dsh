@@ -9,19 +9,27 @@ git clone https://github.com/N107meow/figma-mcp-dsh.git
 cd figma-mcp-dsh
 ```
 
+**普通用户不需要这一节。** 从 npm 或插件页安装时宿主包由 DSH 自己提供；下面这些只对**在本仓库开发**（`link:` 安装）和**跑离线测试**是必需的。
+
 插件通过 `link:` 装进 DSH profile，Node 会按**本仓库**（符号链接的真实路径）解析 import，所以三个宿主包必须在本仓库里也装一份，且**版本要与正在运行的 DSH 三元组对齐**（装错版本不会在加载时报错，只在调用时表现为类型/行为不一致）：
 
 ```bash
-# 读到版本号 → 照 README「0. 开发环境准备」装这三个包
+# 读到版本号 → 装这三个包
 D="$(dirname "$(readlink -f "$(command -v dsh)")")/../@deepseek-ai"
 node -p "require('$D/dsh-tools/package.json').version"
 
 pnpm add -D @deepseek-ai/dsh-tools@<上面读到的版本> \
-           @deepseek-ai/schemastery@3.18.2 \
-           @deepseek-ai/cordis@4.0.2
+           @deepseek-ai/schemastery@3.18.5 \
+           @deepseek-ai/cordis@4.0.5
 
-npm run check:deps     # 三个必须全 ✅（它比对的不只是"能否解析"，还有版本三元组）
-npm run verify         # deps + 分层门禁 + 秘密门禁 + 195 条测试
+npm run check:deps     # 三个必须全 ✅（它比对的不只是"能否解析"，还有 peer 范围与宿主判定）
+npm run verify         # bundle + deps + 分层 + 秘密 + 测试计数，全绿
+```
+
+`npm run verify` 现在**包含 `check:bundle`**：它检查包是否具备 DSH 插件页要求的 `dsh.bundle` 形态。真实安装冒烟不在 `verify` 里（要装依赖、启动宿主），用：
+
+```bash
+bash scripts/verify-bundle.sh     # 打包 → dsh plugin add → 自动进 bundles → 启动并注册工具
 ```
 
 ## 2. 核心贡献模式：加一个能力 = 加**一条数据**
@@ -95,7 +103,7 @@ export const ALL_SPECS = Object.freeze([...fileSpecs, ...imageSpecs, ...componen
 ## 4. 测试约定
 
 - **离线、确定性**：`fetch`、时钟、睡眠都是注入的，测试不联网、不睡真实时间。`npm test` 在没有网络、没有令牌的机器上必须全绿。
-- **真实数据测试需要 `.env.local`**（不入库；变量清单见 `test/fixtures/real-file.js`）。缺省时这些用例**自动跳过**——`195 条 / 181 通过 / 14 跳过`是正常状态，不是失败。手动跑：`npm run test:real`。
+- **真实数据测试需要 `.env.local`**（不入库；变量清单见 `test/fixtures/real-file.js`）。缺省时这些用例**自动跳过**——数字以 `npm run check:test-counts` 的输出为准（当前 `216 条 / 202 通过 / 14 跳过`），跳过是正常状态，不是失败。手动跑：`npm run test:real`。
 - **不得提交真实 fixture**：真实 fileKey、节点 id、组件名、渲染图都不要进仓库。`test/` 只用合成值，断言写成与真实名称无关的事实（例如"某个组件有 40 字符的 key""变体名能被解析成 `{Ratio: '2:3'}`"）。
 - **新增合成标识符要登记**：加进 `scripts/check-secrets.mjs` 的 `SYNTHETIC_ALLOWLIST`。这是一次**需要想清楚**的动作——登记等于声明"这个值指不到任何真实对象"。
 - 改到安全相关路径（脱敏、重定向、只读断言）时，请同时加一条**会失败的**回归测试——门禁的价值全在于它能红。
@@ -103,10 +111,12 @@ export const ALL_SPECS = Object.freeze([...fileSpecs, ...imageSpecs, ...componen
 ## 5. 提 PR 前
 
 ```bash
-npm run verify     # deps 门禁 + 分层门禁 + 秘密门禁 + 全部测试，必须全绿
+npm run verify                 # bundle + deps + 分层 + 秘密 + 测试计数，必须全绿
+bash scripts/verify-bundle.sh  # 改了 package.json / cordis.patch.yml / 安装文档时必须跑
 ```
 
 - 提交信息沿用仓库风格：`feat:` / `fix:` / `chore:` / `docs:` + 一句中文说明。
 - 文档语言是中文。
 - 不要在同一个 PR 里顺手改无关文件——尤其是 `scripts/check-*.mjs`（门禁）与 `.gitignore`。
+- **改了包形态（`dsh.bundle`、`files`、`cordis.patch.yml`）时**，`npm run verify` 只验证元数据；请再用临时 `DSH_HOME` 跑一次 `scripts/verify-bundle.sh`，确认宿主真的能自动挂载。
 - 安全问题不要开公开 Issue，走 [Security Advisory](SECURITY.md)。

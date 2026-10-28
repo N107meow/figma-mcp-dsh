@@ -19,11 +19,9 @@
 
 ## 环境要求
 
-安装前请确认本机具备以下环境：
-
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
+- **DeepSeek Harness ≥ 0.2.0-rc.2**。已实测：桌面 App `0.2.1-rc.3`、Web 版 `0.2.1-rc.2` 与 `0.2.0-rc.2`。**DSH 0.1.x 请继续用 `figma-mcp-dsh@0.1.3`**，不要升级到 0.2.0。
 - Node.js 20 或更高版本
-- `pnpm`
+- `pnpm`（用 CLI 安装时需要；桌面 App 的插件页使用自带 pnpm）
 - 具有目标文件访问权限的 Figma Personal Access Token（PAT）
 
 Figma 令牌需要以下只读权限：
@@ -37,54 +35,63 @@ file_dev_resources:read
 
 ## 安装与配置
 
-以下步骤将插件安装到 DSH 的 `web` profile，并配置访问 Figma 所需的令牌。
+> **插件以 bundle 形式发布**：装进 profile 后自动挂载，**新安装不再需要手工改 `cordis.patch.yml`**。
+>
+> **两个 edition 的 profile 相互独立**：桌面 App 固定用 `desktop`，`dsh web` 默认用 `web`；插件装进哪个 profile，就只对哪个 edition 生效。**两个都用，就各装一次。**
 
-### 1. 从 GitHub 安装插件
+### 1. 安装到桌面版
 
-在 DSH profile 目录中安装插件：
+桌面 App → **Settings → Plugins → Add plugin** → 输入 `figma-mcp-dsh` → **Install / Enable**；提示重启就重启。
 
-```bash
-cd ~/.dsh/profiles/web
-pnpm add github:N107meow/figma-mcp-dsh
-```
+装完就是启用状态：插件管理器会把 `figma-mcp-dsh` 写进 `~/.dsh/profiles/desktop/package.json` 的 `dsh.profile.bundles`，再由包内的 `cordis.patch.yml` 插入 `figma` 行。
 
-#### 其它安装方式 · npm
+### 2. 安装到 Web 版
 
-插件也已发布到 npm，registry 上的版本与仓库同步。如果你更习惯从 npm 安装：
+`dsh web` 的 **Plugins** 页面走同一个入口；或者用 CLI：
 
 ```bash
 dsh plugin --profile web add figma-mcp-dsh
 ```
 
-或者直接在 profile 目录里用 `pnpm`：
+装完同样会自动进 `dsh.profile.bundles`，重启（或等热载）即可。
+
+### 3. 其它安装方式
+
+#### 从 GitHub 安装
+
+```bash
+dsh plugin --profile web add github:N107meow/figma-mcp-dsh
+```
+
+GitHub 路径也走 plugin manager，因此同样会自动加 bundle。
+
+#### 只装依赖（不推荐）
 
 ```bash
 cd ~/.dsh/profiles/web
-pnpm add figma-mcp-dsh
+pnpm add figma-mcp-dsh          # 或 pnpm add github:N107meow/figma-mcp-dsh
 ```
 
-从 npm 安装后，升级用：
+`pnpm add` **只装依赖、不会把包选进 `dsh.profile.bundles`**，插件不会被挂载。确实要这样装，必须再手动把 `"figma-mcp-dsh"` 加到该 profile `package.json` 的 `dsh.profile.bundles` 数组里。
 
-```bash
-dsh plugin --profile web update figma-mcp-dsh
-```
-
-#### 本地开发
-
-本地开发请改用 `link:` 安装：
+#### 本地开发（`link:`）
 
 ```bash
 cd ~/.dsh/profiles/web
 pnpm add link:/absolute/path/to/figma-mcp-dsh
 ```
 
-本地开发还需要在插件仓库中安装与当前 DSH 版本一致的宿主依赖。运行 `npm run check:deps` 可以检查版本是否匹配。
+`link:` 是开发路径，同样不会自动加 bundle：请按 §4 手动补那一行（旧版行为，继续可用）。本地开发还需要在插件仓库里装与当前 DSH 版本一致的宿主依赖，`npm run check:deps` 会检查。
 
-> **插件与 DSH 版本必须匹配。** DSH 会校验插件的 `peerDependencies`，不匹配时**安装会被直接拒绝**（提示 `installation rejected: … is incompatible with dsh …`）。若你看到这条提示，说明插件版本落后于你的 DSH —— 升级插件即可，不要用 `dsh plugin allow-version` 绕过：那是给"已知不兼容但接受风险"用的，不是给"装错版本"用的。
+### 4. 确认已挂载（含手动兜底）
 
-### 2. 挂载插件
+```bash
+dsh --profile web --dump-config | grep -A2 -- "- id: figma"
+```
 
-在 `~/.dsh/profiles/web/cordis.patch.yml` 中追加：
+能看到 `- id: figma` / `name: figma-mcp-dsh` 就对了。
+
+**手动兜底**（旧版安装、`link:` 开发，或自动加 bundle 失败时）：在 `~/.dsh/profiles/<name>/cordis.patch.yml` 追加
 
 ```yaml
 - insert:
@@ -92,9 +99,9 @@ pnpm add link:/absolute/path/to/figma-mcp-dsh
       name: figma-mcp-dsh
 ```
 
-`cordis.patch.yml` 支持热加载。首次安装或更新依赖后，请重启 DSH。
+> 如果 bundle 已经在 `dsh.profile.bundles` 里，再加这一行会产生同 id 的重复项：实测不报错（后者生效），但应当把重复项删掉。
 
-### 3. 配置 Figma 令牌
+### 5. 配置 Figma 令牌
 
 在 `~/.dsh/.credentials.yaml` 中保存令牌：
 
@@ -120,6 +127,29 @@ refs:
 ![填写名称、有效期，并勾选只读 scope](https://cdn.jsdelivr.net/gh/N107meow/figma-mcp-dsh@8ca5f60632bb3e2cd9f664809023ec81041f5dc7/docs/images/token-3-token-form.png)
 
 > 截图是中文界面，括号里是英文界面下的对应字样。完整版（scope 逐条说明、轮换与失效排查）见 [Figma 令牌配置指南](./docs/TOKEN_SETUP.md)。
+
+### 6. 升级与从 0.1.x 迁移
+
+**升级**：
+
+```bash
+dsh plugin --profile <name> update figma-mcp-dsh
+```
+
+> ⚠️ **升级不一定自动进 bundles**：插件管理器只在“新装”时把这个包选进 `dsh.profile.bundles`；依赖已经存在时，`reconcile` 不会把它当成新 bundle。升级后请按 §4 确认一次。
+
+**从 0.1.x 迁移（顺序很重要）**：
+
+1. 先确认新版本已装好，并**确认** `figma-mcp-dsh` 已经在 `dsh.profile.bundles` 里（不在就重新安装一次，或在 profile `package.json` 的 `dsh.profile.bundles` 数组末尾补 `"figma-mcp-dsh"`，保留已有项）；
+2. **确认之后**，再从 `cordis.patch.yml` 里删掉 0.1.x 时代手工加的 `figma` 行。
+
+顺序反了会出现“装了但没挂载”的短暂状态。
+
+**版本门槛**：`0.2.0` 需要 DSH `>= 0.2.0-rc.2`；DSH 0.1.x 用户请留在 `figma-mcp-dsh@0.1.3`。
+
+> **插件与 DSH 版本必须匹配。** DSH 会校验插件的 `peerDependencies`，不匹配时**安装会被直接拒绝**（`installation rejected: … is incompatible with dsh …`）。看到这条提示说明版本选错了——选对版本即可，不要用 `dsh plugin allow-version` 绕过：那是给“已知不兼容但接受风险”用的。
+
+**令牌是全局的**：`~/.dsh/.credentials.yaml` 由两个 edition 共享，只需要配一次；只有使用自定义 `DSH_HOME` 时才需要各配一份。
 
 ## 使用示例
 
