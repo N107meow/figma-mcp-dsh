@@ -37,7 +37,7 @@ import { runSuite } from './run-tests.mjs'
  * Raise it when tests are added. Lowering it is a decision worth explaining in
  * the commit message: it means coverage that used to run no longer does.
  */
-const MIN_PASS = 184
+const MIN_PASS = 202
 
 /**
  * Tests skipped when no live fixtures are configured.
