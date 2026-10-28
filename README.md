@@ -147,6 +147,16 @@ dsh plugin --profile <name> update figma-mcp-dsh
 
 **版本门槛**：`0.2.0` 需要 DSH `>= 0.2.0-rc.2`；DSH 0.1.x 用户请留在 `figma-mcp-dsh@0.1.3`。
 
+**两个版本都能从 GitHub 装**（各自对应的 tag）：
+
+```bash
+# 新版（bundle，自动挂载）
+dsh plugin --profile web add github:N107meow/figma-mcp-dsh#v0.2.0
+
+# 旧版（0.1.x 用户；普通插件，装完按 §4 手动补 patch 行）
+dsh plugin --profile web add github:N107meow/figma-mcp-dsh#v0.1.3
+```
+
 > **插件与 DSH 版本必须匹配。** DSH 会校验插件的 `peerDependencies`，不匹配时**安装会被直接拒绝**（`installation rejected: … is incompatible with dsh …`）。看到这条提示说明版本选错了——选对版本即可，不要用 `dsh plugin allow-version` 绕过：那是给“已知不兼容但接受风险”用的。
 
 **令牌是全局的**：`~/.dsh/.credentials.yaml` 由两个 edition 共享，只需要配一次；只有使用自定义 `DSH_HOME` 时才需要各配一份。

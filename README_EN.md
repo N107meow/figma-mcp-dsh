@@ -147,6 +147,16 @@ Doing it the other way round leaves a short window where the plugin is installed
 
 **Version gate**: `0.2.0` requires DSH `>= 0.2.0-rc.2`; on DSH 0.1.x stay on `figma-mcp-dsh@0.1.3`.
 
+**Both versions can be installed from GitHub** (each has its own tag):
+
+```bash
+# Current version (bundle, mounts itself)
+dsh plugin --profile web add github:N107meow/figma-mcp-dsh#v0.2.0
+
+# Legacy version (DSH 0.1.x; plain plugin, add the §4 row by hand)
+dsh plugin --profile web add github:N107meow/figma-mcp-dsh#v0.1.3
+```
+
 > **The plugin and DSH versions must match.** DSH validates the plugin's `peerDependencies`, and a mismatch makes the **installation fail outright** (`installation rejected: … is incompatible with dsh …`). That message means the wrong version was chosen — choose the right one. Do not work around it with `dsh plugin allow-version`: that exemption exists for "known incompatible, risk accepted".
 
 **The token is global**: `~/.dsh/.credentials.yaml` is shared by both editions, so it only needs configuring once (a custom `DSH_HOME` needs its own copy).
